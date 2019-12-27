@@ -81,7 +81,7 @@ def plot_2d_xy(data, **kwargs):
 
     # counts
     for p in ('count', 'count_qc'):
-        d = data.data[p]
+        d = data.count(qc=p=='count_qc')
         dMax = numpy.max(d)
         dSum = numpy.sum(d)
         if p == 'count':
@@ -95,8 +95,8 @@ def plot_2d_xy(data, **kwargs):
         plot_common_post(p)
 
     # pct bad obs
-    count = data.data['count']
-    count_qc = data.data['count_qc']
+    count = data.count(qc=False)
+    count_qc = data.count(qc=True)
     d = count - count_qc
     d[count > 0] /= count[count > 0]
     d = numpy.ma.masked_where(count == 0, d)
@@ -111,10 +111,7 @@ def plot_2d_xy(data, **kwargs):
 
     # rmsd
     for p in ('ombg', 'oman'):
-        d = data.data[p+'_sum2']
-        d[count_qc > 0] /= count_qc[count_qc > 0]
-        d = numpy.sqrt(d)
-        d = numpy.ma.masked_where(count_qc == 0, d)
+        d = data.rmsd(mode=p)
         dMax = numpy.max(d)
         dAvg = numpy.mean(d)
         if p == 'ombg':
@@ -129,9 +126,7 @@ def plot_2d_xy(data, **kwargs):
 
     # bias
     for p in ('ombg', 'oman'):
-        d = data.data[p+'_sum']
-        d[count_qc > 0] /= count_qc[count_qc > 0]
-        d = numpy.ma.masked_where(count_qc == 0, d)
+        d = data.mean(mode=p)
         dMax = max(numpy.max(d), abs(numpy.min(d)))
         dAvg = numpy.mean(d[count_qc > 0])
         if p == 'ombg':
@@ -183,7 +178,7 @@ def plot_2d_z(data, **kwargs):
 
     # counts
     for p in ('count', 'count_qc'):
-        d = data.data[p]
+        d = data.count(qc=p=='count_qc')
         dMax = numpy.max(d)
         dSum = numpy.sum(d)
         if p == 'count':
@@ -194,8 +189,8 @@ def plot_2d_z(data, **kwargs):
         plot_common_post(p)
 
     # pct bad
-    count = data.data['count']
-    count_qc = data.data['count_qc']
+    count = data.count(qc=False)
+    count_qc = data.count(qc=True)
     d = count - count_qc
     d[count > 0] /= count[count > 0]
     d = numpy.ma.masked_where(count == 0, d)
@@ -208,10 +203,7 @@ def plot_2d_z(data, **kwargs):
     
     # rmsd
     for p in ('ombg', 'oman'):
-        d = data.data[p+'_sum2']
-        d[count_qc > 0] /= count_qc[count_qc > 0]
-        d = numpy.sqrt(d)
-        d = numpy.ma.masked_where(count_qc == 0, d)
+        d = data.rmsd(mode=p)
         dMax = numpy.max(d)
         dAvg = numpy.mean(d)
         if p == 'ombg':
@@ -223,9 +215,7 @@ def plot_2d_z(data, **kwargs):
 
     # bias
     for p in ('ombg', 'oman'):
-        d = data.data[p+'_sum']
-        d[count_qc > 0] /= count_qc[count_qc > 0]
-        d = numpy.ma.masked_where(count_qc == 0, d)
+        d = data.mean(mode=p)
         dMax = max(numpy.max(d), abs(numpy.min(d)))
         dAvg = numpy.mean(d[count_qc > 0])
         if p == 'ombg':
@@ -250,7 +240,7 @@ def plot_1d_z(data, daterange, **kwargs):
             
     bin_centers = (data.bin_edges[0][:-1] + data.bin_edges[0][1:]) / 2.0
     bin_widths = (data.bin_edges[0][1:] - data.bin_edges[0][:-1])
-    count_qc = data.data['count_qc']
+    count_qc = data.count(qc=True)
 
     def plot_common_pre(title=""):
         plt.figure(figsize=(4.0, 8.0))
@@ -275,9 +265,9 @@ def plot_1d_z(data, daterange, **kwargs):
     # counts
     bar_widths = bin_widths - numpy.min(bin_widths)*0.1
     plot_common_pre(title="counts")
-    plt.barh(bin_centers, data.data['count']/bar_widths, color='C0', alpha=0.4,
+    plt.barh(bin_centers, data.count(qc=False)/bar_widths, color='C0', alpha=0.4,
              height=bar_widths)
-    plt.barh(bin_centers, data.data['count_qc']/bar_widths, color='C0',
+    plt.barh(bin_centers, data.count(qc=True)/bar_widths, color='C0',
              height=bar_widths)
     plot_common_post('counts')
 
@@ -285,9 +275,7 @@ def plot_1d_z(data, daterange, **kwargs):
     plot_common_pre(title="rmsd")
     for p in ('ombg', 'oman'):
         for data in data_unmerged:
-            rmsd = data.data[p+'_sum2']
-            rmsd[count_qc > 0] /= count_qc[count_qc > 0]
-            rmsd = numpy.sqrt(rmsd)
+            rmsd = data.rmsd(mode=p)
             plt.plot(rmsd, bin_centers, color='C0', alpha=0.2,
                      ls='--' if p == 'oman' else None)
         plt.plot(rmsd, bin_centers, color='C0', alpha=1.0, lw=2.0,
@@ -299,8 +287,7 @@ def plot_1d_z(data, daterange, **kwargs):
     plot_common_pre(title="bias")
     for p in ('ombg', 'oman'):
         for data in data_unmerged:
-            bias = data.data[p+'_sum']
-            bias[count_qc > 0] /= count_qc[count_qc > 0]
+            bias = data.mean(mode=p)
             plt.plot(bias, bin_centers, color='C0', alpha=0.2,
                      ls='--' if p == 'oman' else None)
         plt.plot(rmsd, bin_centers, color='C0', alpha=1.0, lw=2.0,

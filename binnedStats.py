@@ -8,6 +8,21 @@ import yaml
 import copy
 import dateutil
 
+class BinnedStatsCollectionDiff:
+    def __init__(self, collection1, collection2):
+        # ensure the two collections are congruent
+        assert collection1.obsvar == collection2.obsvar
+        assert collection1.bin_config == collection2.bin_config
+        self.obsvar = collection1.obsvar
+        self.bin_config = collection1.bin_config
+        
+        # TODO warning if the date ranges are different?
+        self.daterange = collection1.daterange
+
+        self.binned_stats = collection1.binned_stats
+        raise NotImplementedError("not done with BinnedStatsCollectionDiff")
+
+
 # TODO make histogram calls go faster
 # TODO handle region subselection
 # TODO handle binning extents 
@@ -80,7 +95,7 @@ class BinnedStatsCollection:
         return BinnedStatsCollection.merge((self, other))
 
     def __sub__(self, other):
-        raise NotImplementedError
+        return BinnedStatsCollectionDiff(self, other)
 
 
 
@@ -91,7 +106,6 @@ class BinnedStats:
         self.data = {}
         self.bin_dims = None
         self.bin_edges = None
-
         self.name = binning_spec['name']
 
         # Get the list of variables this binning should operate on
@@ -145,7 +159,7 @@ class BinnedStats:
             self.data[v+'_sum2'] = H
 
     def __add__(self, other):
-        # TODO check to make sure they are equivalent first
+        # TODO check to make sure they are equivalent first      
         cls = copy.deepcopy(self)
         for d in cls.data:
             cls.data[d] += other.data[d]
@@ -158,6 +172,28 @@ class BinnedStats:
         return ('<BinnedStats name="{}" variable="{}" dims="{}">'.format(
             self.name, self.obsvar, self.bin_dims))
 
+    def count(self, qc=False):
+        if qc==False:
+            return self.data['count']
+        else:
+            return self.data['count_qc']
+
+    def rmsd(self, mode):
+        assert mode in ('ombg','oman')
+        d = self.data[mode+'_sum2']
+        count_qc = self.count(qc=True)
+        d[count_qc > 0] /= count_qc[count_qc > 0]
+        d = numpy.sqrt(d)
+        d = numpy.ma.masked_where(count_qc == 0, d)
+        return d
+
+    def mean(self, mode):
+        assert mode in ('ombg','oman')
+        d = self.data[mode +'_sum']
+        count_qc = self.count(qc=True)
+        d[count_qc > 0] /= count_qc[count_qc > 0]
+        d = numpy.ma.masked_where(count_qc == 0, d)
+        return d
 
 class Region:
     def __init__(self, name):
