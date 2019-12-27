@@ -8,7 +8,6 @@ import yaml
 import copy
 import dateutil
 
-# TODO add a "merge" command useable from main
 # TODO make histogram calls go faster
 # TODO handle region subselection
 # TODO handle binning extents 
@@ -80,6 +79,10 @@ class BinnedStatsCollection:
     def __add__(self, other):
         return BinnedStatsCollection.merge((self, other))
 
+    def __sub__(self, other):
+        raise NotImplementedError
+
+
 
 class BinnedStats:
     def __init__(self, data, binning_spec):
@@ -147,6 +150,9 @@ class BinnedStats:
         for d in cls.data:
             cls.data[d] += other.data[d]
         return cls
+    
+    def __sub__(self, other):
+        raise NotImplementedError("subtraction of BinnedStats is not allowed.")
 
     def __str__(self):
         return ('<BinnedStats name="{}" variable="{}" dims="{}">'.format(

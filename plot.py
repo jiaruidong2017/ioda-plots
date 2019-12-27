@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 from binnedStats import BinnedStats, BinnedStatsCollection
-import os
+import os, sys
 import numpy
+from datetime import datetime
+
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
-from datetime import datetime
 
 # TODO add support for multiple experiments
 # TODO add "unmerged" line plots
@@ -41,7 +42,6 @@ def plot_2d_xy(data, **kwargs):
     proj = ccrs.PlateCarree(central_longitude=-155)
     trans = ccrs.PlateCarree()
     meshLons, meshLats = numpy.meshgrid(data.bin_edges[1], data.bin_edges[0])
-    
     
     def plot_common_pre(title="", text=[]):
         plt.figure(figsize= (4.0,2.0) if kwargs['thumbnail'] else (8.0, 4.0) )
@@ -315,13 +315,21 @@ def plot_1d_z(data, daterange, **kwargs):
 def main():
     import argparse
     import os
+
     parser = argparse.ArgumentParser()
-    parser.add_argument('files', nargs="+")
-    parser.add_argument('--prefix', default="")
-    parser.add_argument('--thumbnail', action="store_true", default=False,
+    
+    parser_req = parser.add_argument_group("required arguments")
+    parser_req.add_argument('-exp', required=True, action="append", nargs="+",
+        help="one or more files to load. This argument can be repeated to handle multiple experimetns (diff or multiple line plots)")
+
+    parser_opt = parser
+    parser_opt.add_argument('--prefix', default="")    
+    parser_opt.add_argument('--thumbnail', action="store_true", default=False,
                         help='Create smaller images without labels and colorbars')
-    parser.add_argument('--unmerged', default = False, action="store_true",
+    parser_opt.add_argument('--unmerged', default = False, action="store_true",
                         help='')
+    parser_opt.add_argument('-label', nargs="+", required=False)
+    
     args = parser.parse_args()
 
     # create output directories
@@ -329,22 +337,42 @@ def main():
     if d is not "" and not os.path.exists(d):
         os.makedirs(d)
 
+    # determine the name of the experiments, if not already given
+    if "label" not in args:
+        pass
+        # TODO generate the list
+    if len(args.label) != len(args.exp):
+        print("ERROR: number of '-label' arguments must equal number of '-exp' given.")
+        sys.exit(1)
+
     # read and merge data
-    data = None
-    data_unmerged = []
-    for f in args.files:
-        print('Loading: ', f)
-        bs = BinnedStatsCollection.load(f)
-        if data is None:
-            data = bs
-        else:
-            data += bs
-        if args.unmerged:
-            data_unmerged.append(bs)
+    # TODO I don't like the whole "unmerged" business
+    exps=[]
+    for files in args.exp:
+        data = None
+        data_unmerged = []
+        for f in files:
+            print('Loading: ', f)
+            bs = BinnedStatsCollection.load(f)
+            if data is None:
+                data = bs
+            else:
+                data += bs
+            if args.unmerged:
+                data_unmerged.append(bs)
+        exps.append(data)
+
+    if len(exps) == 1:
+        data = exps[0]
+    elif len(exps) == 2:
+        data = exps[0] - exps[1]
+    else:
+        print("ERROR: unable to handle >2 exps currently.")
+        sys.exit(1)
 
     # TODO check to make sure unmerged data is same format
-            
     for k, v in data.binned_stats.items():
+        print("Plotting " + k)
         # determine what kind of plot this is
         s = set(v.bin_dims)
         if len(v.bin_dims) == 3 and set(('latitude', 'longitude')).issubset(s):
