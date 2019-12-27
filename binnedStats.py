@@ -15,12 +15,25 @@ class BinnedStatsCollectionDiff:
         assert collection1.bin_config == collection2.bin_config
         self.obsvar = collection1.obsvar
         self.bin_config = collection1.bin_config
-        
+        self.binned_stats = {}
+        self.exps=2
+
+        self._collection1 = collection1
+        self._collection2 = collection2
+
         # TODO warning if the date ranges are different?
         self.daterange = collection1.daterange
 
-        self.binned_stats = collection1.binned_stats
-        raise NotImplementedError("not done with BinnedStatsCollectionDiff")
+        for k in collection1.binned_stats:
+            self.binned_stats[k] = collection1.binned_stats[k] - collection2.binned_stats[k]
+
+    def __str__(self):
+        return ('<BinnedStatsCollectionDiff exp="({})" variable="{}" bins="{}" dates="{} to {}">'.format(
+            self.exp(), self.obsvar, len(self.binned_stats),
+            self.daterange[0].strftime("%Y%m%dT%X"), self.daterange[1].strftime("%Y%m%dT%X")))
+
+    def exp(self):
+        return "{}-{}".format(self._collection1.exp(), self._collection2.exp())
 
 
 # TODO make histogram calls go faster
@@ -28,18 +41,24 @@ class BinnedStatsCollectionDiff:
 # TODO handle binning extents 
 class BinnedStatsCollection:
     def __init__(self):
+        self.exps = 1
+        self._exp = ""
         self.obsvar = None
         self.bin_config = {}
         self.binned_stats = {}
         self.daterange = []
 
+    def exp(self):
+        return self._exp
+
     @staticmethod
-    def load(filename):
+    def load(filename, exp):
         # TODO, load/save are having pickle problems
         cls = BinnedStatsCollection()
         f = gzip.GzipFile(filename, 'rb')
         cls.__dict__.update(pickle.loads(f.read()))
         f.close()
+        cls._exp = exp
         return cls
 
     def save(self, filename):
@@ -97,16 +116,45 @@ class BinnedStatsCollection:
     def __sub__(self, other):
         return BinnedStatsCollectionDiff(self, other)
 
+    def __str__(self):
+        return ('<BinnedStatsCollection exp="{}" variable="{}" bins="{}" dates="{} to {}">'.format(
+            self.exp(), self.obsvar, len(self.binned_stats), self.daterange[0].strftime("%Y%m%dT%X"), self.daterange[1].strftime("%Y%m%dT%X")))
+
+
+class BinnedStatsDiff:
+    def __init__(self, stats1, stats2):
+        self.name = stats1.name
+        self.bin_dims = stats1.bin_dims
+        self.bin_edges = stats1.bin_edges
+        self.obsvar = stats1.obsvar
+        self._stats1 = stats1
+        self._stats2 = stats2
+
+    def exps(self):
+        return 2
+
+    def count(self, qc=False):
+        return numpy.minimum(self._stats1.count(qc), self._stats2.count(qc))
+
+    def rmsd(self, mode):
+        return self._stats1.rmsd(mode)-self._stats2.rmsd(mode)
+
+    def mean(self, mode):
+        #WRONG
+        return self._stats1.mean(mode)-self._stats2.mean(mode)
+
+    def __str__(self):
+        return ('<BinnedStatsDiff name="{}" variable="{}" dims="{}">'.format(
+            self.name, self.obsvar, self.bin_dims))
 
 
 class BinnedStats:
     def __init__(self, data, binning_spec):
-        self.name = None
-        self.obsvar = None
-        self.data = {}
+        self.obsvar = None        
         self.bin_dims = None
         self.bin_edges = None
-        self.name = binning_spec['name']
+        self.name = binning_spec['name']        
+        self._data = {}
 
         # Get the list of variables this binning should operate on
         # and abort early if no binning will be done with these vars
@@ -142,31 +190,31 @@ class BinnedStats:
 
         # counts
         H, _ = numpy.histogramdd(dim_val, self.bin_edges)
-        self.data['count'] = H
+        self._data['count'] = H
 
         # counts (qc)
         H, _ = numpy.histogramdd(dim_val_qc, self.bin_edges)
-        self.data['count_qc'] = H
+        self._data['count_qc'] = H
 
         # oman, ombg
         for v in ('oman', 'ombg'):
             val = data[self.obsvar+'@'+v][mask_qc]
             H, _ = numpy.histogramdd(dim_val_qc, self.bin_edges, weights=val)
-            self.data[v+'_sum'] = H
+            self._data[v+'_sum'] = H
 
             val = val**2
             H, _ = numpy.histogramdd(dim_val_qc, self.bin_edges, weights=val)
-            self.data[v+'_sum2'] = H
+            self._data[v+'_sum2'] = H
 
     def __add__(self, other):
         # TODO check to make sure they are equivalent first      
         cls = copy.deepcopy(self)
-        for d in cls.data:
-            cls.data[d] += other.data[d]
+        for d in cls._data:
+            cls._data[d] += other._data[d]
         return cls
     
     def __sub__(self, other):
-        raise NotImplementedError("subtraction of BinnedStats is not allowed.")
+        return BinnedStatsDiff(self, other)
 
     def __str__(self):
         return ('<BinnedStats name="{}" variable="{}" dims="{}">'.format(
@@ -174,13 +222,13 @@ class BinnedStats:
 
     def count(self, qc=False):
         if qc==False:
-            return self.data['count']
+            return self._data['count']
         else:
-            return self.data['count_qc']
+            return self._data['count_qc']
 
     def rmsd(self, mode):
         assert mode in ('ombg','oman')
-        d = self.data[mode+'_sum2']
+        d = self._data[mode+'_sum2']
         count_qc = self.count(qc=True)
         d[count_qc > 0] /= count_qc[count_qc > 0]
         d = numpy.sqrt(d)
@@ -189,11 +237,14 @@ class BinnedStats:
 
     def mean(self, mode):
         assert mode in ('ombg','oman')
-        d = self.data[mode +'_sum']
+        d = self._data[mode +'_sum']
         count_qc = self.count(qc=True)
         d[count_qc > 0] /= count_qc[count_qc > 0]
         d = numpy.ma.masked_where(count_qc == 0, d)
         return d
+    
+    def exps(self):
+        return 1
 
 class Region:
     def __init__(self, name):

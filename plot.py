@@ -15,6 +15,8 @@ import matplotlib.colors as colors
 # TODO finish 1d_z
 
 zdims = ('height','depth')
+cmap_div="RdBu_r"
+cmap_seq="inferno"
 
 # ------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------
@@ -37,7 +39,7 @@ def plot_2d_xy(data, **kwargs):
     import matplotlib.ticker as mticker
     from cartopy.mpl import gridliner
 
-    print("Plot 2D (latlon) ", data)
+    print("Plot 2D-latlon ", data)
     dates=[datetime.now(), datetime.now()]
     proj = ccrs.PlateCarree(central_longitude=-155)
     trans = ccrs.PlateCarree()
@@ -60,7 +62,8 @@ def plot_2d_xy(data, **kwargs):
             gl.ylocator = mticker.FixedLocator([-90, -60, -30, 0, 30, 60, 90])
             gl.ylabels_right = False
             gl.ylabel_style = gl_label_style
-            plt.title(data.obsvar+" "+title)
+            exp = kwargs['exp_name'] if "exp_name" in kwargs else ""
+            plt.title(data.obsvar+" "+title+ " (" + exp +")")
             i = -24.0
             for t in text:
                 plt.annotate(t, xycoords='axes points', xy=(0.0, i))
@@ -74,40 +77,44 @@ def plot_2d_xy(data, **kwargs):
         bbox_inches='tight' if kwargs['thumbnail'] else None
         if not kwargs['thumbnail']:
             plt.colorbar(orientation='vertical', shrink=0.8, fraction=0.02)
-        plt.savefig("{}{}_{}_{}.png".format(
+        plt.savefig("{}{}.{}.{}.png".format(
             kwargs['prefix'], data.obsvar, data.name, type_),
                     bbox_inches = bbox_inches)
         plt.close()
 
     # counts
-    for p in ('count', 'count_qc'):
-        d = data.count(qc=p=='count_qc')
-        dMax = numpy.max(d)
-        dSum = numpy.sum(d)
-        if p == 'count':
-            dRange = numpy.percentile(d[d > 0], [99])[0]
-        text = ["min: {:0.0f}".format(dSum),
-                "max: {:0.0f}".format(dMax),]
-        plot_common_pre(title=p, text=text)
-        plt.pcolormesh(meshLons, meshLats, d,
-                       transform=trans, cmap='inferno',
-                       norm=colors.LogNorm(vmin=1.0, vmax=dRange))
-        plot_common_post(p)
+    # NOTE dont plot these if doing an exp comparision
+    if data.exps() == 1:
+        for p in ('count', 'count_qc'):
+            d = data.count(qc=p=='count_qc')
+            dMax = numpy.max(d)
+            dSum = numpy.sum(d)
+            if p == 'count':
+                dRange = numpy.percentile(d[d > 0], [99])[0]
+            text = ["min: {:0.0f}".format(dSum),
+                    "max: {:0.0f}".format(dMax),]
+            plot_common_pre(title=p, text=text)
+            plt.pcolormesh(meshLons, meshLats, d,
+                        transform=trans, cmap=cmap_seq,
+                        norm=colors.LogNorm(vmin=1.0, vmax=dRange))
+            plot_common_post(p)
 
-    # pct bad obs
-    count = data.count(qc=False)
+        # pct bad obs
+        count = data.count(qc=False)
+        count_qc = data.count(qc=True)
+        d = count - count_qc
+        d[count > 0] /= count[count > 0]
+        d = numpy.ma.masked_where(count == 0, d)
+        dMin = numpy.min(d[count > 0])
+        dMax = numpy.max(d)
+        dAvg = numpy.mean(d[count > 0])
+        text = ["min: {:0.2f} max: {:0.2f}".format(dMin, dMax),
+                "avg: {:0.2f}".format(dAvg)]
+        plot_common_pre(title=" count_pctbad", text=text)
+        plt.pcolormesh(meshLons, meshLats, d, transform=trans, cmap=cmap_seq)
+        plot_common_post('count_pctbad')
+
     count_qc = data.count(qc=True)
-    d = count - count_qc
-    d[count > 0] /= count[count > 0]
-    d = numpy.ma.masked_where(count == 0, d)
-    dMin = numpy.min(d[count > 0])
-    dMax = numpy.max(d)
-    dAvg = numpy.mean(d[count > 0])
-    text = ["min: {:0.2f} max: {:0.2f}".format(dMin, dMax),
-            "avg: {:0.2f}".format(dAvg)]
-    plot_common_pre(title=" count_pctbad", text=text)
-    plt.pcolormesh(meshLons, meshLats, d, transform=trans, cmap='inferno')
-    plot_common_post('count_pctbad')
 
     # rmsd
     for p in ('ombg', 'oman'):
@@ -115,13 +122,20 @@ def plot_2d_xy(data, **kwargs):
         dMax = numpy.max(d)
         dAvg = numpy.mean(d)
         if p == 'ombg':
-            dRange = numpy.percentile(d[count_qc > 0], [1, 99])
-
+            if data.exps() == 1:
+                dRange = numpy.percentile(d[count_qc > 0], [1, 99])
+                norm=colors.LogNorm(vmin=dRange[0], vmax=dRange[1])
+                cmap=cmap_seq
+            else:
+                dRange = numpy.max(numpy.abs(
+                    numpy.percentile(d[count_qc > 0], [1, 99])))
+                norm=colors.Normalize(vmin=-dRange, vmax=dRange)
+                cmap=cmap_div
+                    
         text = ['max: {:0.2e}'.format(dMax),
                 'avg: {:0.2e}'.format(dAvg),]
         plot_common_pre(title=p+" rmsd", text=text)
-        plt.pcolormesh(meshLons, meshLats, d, transform=trans, cmap='inferno',
-                       norm=colors.LogNorm(vmin=dRange[0], vmax=dRange[1]))
+        plt.pcolormesh(meshLons, meshLats, d, transform=trans, cmap=cmap, norm=norm)
         plot_common_post(p+'_rmsd')
 
     # bias
@@ -135,7 +149,7 @@ def plot_2d_xy(data, **kwargs):
         text = ['max: {:0.2e}'.format(dMax),
                 'avg: {:0.2e}'.format(dAvg)]            
         plot_common_pre(title=p+" bias", text=text)
-        plt.pcolormesh(meshLons, meshLats, d, transform=trans, cmap='RdBu_r',
+        plt.pcolormesh(meshLons, meshLats, d, transform=trans, cmap=cmap_div,
                        vmin=-dRange, vmax=dRange)
         plot_common_post(p+'_bias')
 
@@ -185,7 +199,7 @@ def plot_2d_z(data, **kwargs):
             dRange = numpy.percentile(d[d>0], [99])[0]
         plot_common_pre(title=p)
         plt.pcolormesh(mesh_x, mesh_z, d,
-                       cmap="inferno", norm=colors.LogNorm(vmin=1.0, vmax=dRange))
+                       cmap=cmap_seq, norm=colors.LogNorm(vmin=1.0, vmax=dRange))
         plot_common_post(p)
 
     # pct bad
@@ -198,7 +212,7 @@ def plot_2d_z(data, **kwargs):
     dMax = numpy.max(d)
     dAvg = numpy.mean(d[count > 0])
     plot_common_pre(title=" count_pctbad")
-    plt.pcolormesh(mesh_x, mesh_z, d, cmap='inferno')
+    plt.pcolormesh(mesh_x, mesh_z, d, cmap=cmap_seq)
     plot_common_post('count_pctbad')
     
     # rmsd
@@ -210,7 +224,7 @@ def plot_2d_z(data, **kwargs):
             dRange = numpy.percentile(d[count_qc > 0], [1,99])
 
         plot_common_pre(title=p+" rmsd")
-        plt.pcolormesh(mesh_x, mesh_z, d, cmap='inferno', norm=colors.LogNorm(*dRange))
+        plt.pcolormesh(mesh_x, mesh_z, d, cmap=cmap_seq, norm=colors.LogNorm(*dRange))
         plot_common_post(p+'_rmsd')
 
     # bias
@@ -222,7 +236,7 @@ def plot_2d_z(data, **kwargs):
             dRange = numpy.max(numpy.abs(
                 numpy.percentile(d[count_qc > 0], [1,99])))
         plot_common_pre(title=p+' bias')
-        plt.pcolormesh(mesh_x, mesh_z, d, cmap="RdBu_r", vmin=-dRange, vmax=dRange)
+        plt.pcolormesh(mesh_x, mesh_z, d, cmap=cmap_div, vmin=-dRange, vmax=dRange)
         plot_common_post(p+'_bias')
 
 
@@ -325,9 +339,8 @@ def main():
         os.makedirs(d)
 
     # determine the name of the experiments, if not already given
-    if "label" not in args:
-        pass
-        # TODO generate the list
+    if args.label is None:
+        args.label = [ "exp{}".format(i+1) for i in range(len(args.exp))]
     if len(args.label) != len(args.exp):
         print("ERROR: number of '-label' arguments must equal number of '-exp' given.")
         sys.exit(1)
@@ -335,12 +348,12 @@ def main():
     # read and merge data
     # TODO I don't like the whole "unmerged" business
     exps=[]
-    for files in args.exp:
+    for files in enumerate(args.exp):
         data = None
         data_unmerged = []
-        for f in files:
+        for f in files[1]:
             print('Loading: ', f)
-            bs = BinnedStatsCollection.load(f)
+            bs = BinnedStatsCollection.load(filename=f, exp=args.label[files[0]])
             if data is None:
                 data = bs
             else:
@@ -357,9 +370,12 @@ def main():
         print("ERROR: unable to handle >2 exps currently.")
         sys.exit(1)
 
+    print("Generating plots for: ", data)
+    print("")
+
     # TODO check to make sure unmerged data is same format
     for k, v in data.binned_stats.items():
-        print("Plotting " + k)
+        
         # determine what kind of plot this is
         s = set(v.bin_dims)
         if len(v.bin_dims) == 3 and set(('latitude', 'longitude')).issubset(s):
@@ -367,7 +383,7 @@ def main():
             plot_3d_xy(v)
         elif set(('latitude', 'longitude')) == s:
             # 2D lat/lon plot
-            plot_2d_xy(v, **vars(args))
+            plot_2d_xy(v, **vars(args), exp_name=data.exp())
         elif len(v.bin_dims) == 2 and \
                 len(set(('latitude', 'longitude')).intersection(s)) == 1:
             # 2D cross section plots wrt depth ( or some other variable)

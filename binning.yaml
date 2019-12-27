@@ -12,15 +12,15 @@ binning:
   vars: *vars_sat
   dims:
     latitude:
-      res: 2.0
+      res: 5.0
     longitude:
-      res: 2.0
+      res: 5.0
 
-- name: lat_satellite
-  vars: *vars_sat
-  dims:
-    latitude:
-      res: 2.0
+# - name: lat_satellite
+#   vars: *vars_sat
+#   dims:
+#     latitude:
+#       res: 5.0
 #
 # - name: latlon
 #   vars: *vars_insitu
