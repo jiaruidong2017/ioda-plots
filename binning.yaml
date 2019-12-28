@@ -8,13 +8,18 @@ _: #observation varuable names to use
     - sea_water_salinity
 
 binning:
-- name: latlon_satellite
+- name: latlon
   vars: *vars_sat
   dims:
     latitude:
       res: 5.0
     longitude:
       res: 5.0
+
+- name: zonalavg
+  vars: *vars_sat
+  dims:
+    latitude: {res: 5.0}
 
 # - name: lat_satellite
 #   vars: *vars_sat

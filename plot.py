@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 
 # TODO add support for multiple experiments
-# TODO add "unmerged" line plots
+# TODO add "timeseries" line plots
 # TODO finish 3d_xy
 # TODO finish 1d_z
 
@@ -26,7 +26,7 @@ def plot_3d_xy(data):
     #######################################
     print("Plot 3D (latlon) ", data)
     # which dimension is the non lat/lon dim
-    zdim = (set(data.bin_dims) - set(('latitude','longitude'))).pop()
+    # zdim = (set(data.bin_dims) - set(('latitude','longitude'))).pop()
 
 
 # ------------------------------------------------------------------------------
@@ -193,8 +193,8 @@ def plot_2d_z(data, **kwargs):
     # counts
     for p in ('count', 'count_qc'):
         d = data.count(qc=p=='count_qc')
-        dMax = numpy.max(d)
-        dSum = numpy.sum(d)
+        # dMax = numpy.max(d)
+        # dSum = numpy.sum(d)
         if p == 'count':
             dRange = numpy.percentile(d[d>0], [99])[0]
         plot_common_pre(title=p)
@@ -208,18 +208,18 @@ def plot_2d_z(data, **kwargs):
     d = count - count_qc
     d[count > 0] /= count[count > 0]
     d = numpy.ma.masked_where(count == 0, d)
-    dMin = numpy.min(d[count > 0])
-    dMax = numpy.max(d)
-    dAvg = numpy.mean(d[count > 0])
+    # dMin = numpy.min(d[count > 0])
+    # dMax = numpy.max(d)
+    # dAvg = numpy.mean(d[count > 0])
     plot_common_pre(title=" count_pctbad")
     plt.pcolormesh(mesh_x, mesh_z, d, cmap=cmap_seq)
     plot_common_post('count_pctbad')
     
     # rmsd
-    for p in ('ombg', 'oman'):
+    for p in ('ombg', 'oman'):        
         d = data.rmsd(mode=p)
-        dMax = numpy.max(d)
-        dAvg = numpy.mean(d)
+        # dMax = numpy.max(d)
+        # dAvg = numpy.mean(d)
         if p == 'ombg':
             dRange = numpy.percentile(d[count_qc > 0], [1,99])
 
@@ -230,8 +230,8 @@ def plot_2d_z(data, **kwargs):
     # bias
     for p in ('ombg', 'oman'):
         d = data.mean(mode=p)
-        dMax = max(numpy.max(d), abs(numpy.min(d)))
-        dAvg = numpy.mean(d[count_qc > 0])
+        # dMax = max(numpy.max(d), abs(numpy.min(d)))
+        # dAvg = numpy.mean(d[count_qc > 0])
         if p == 'ombg':
             dRange = numpy.max(numpy.abs(
                 numpy.percentile(d[count_qc > 0], [1,99])))
@@ -242,19 +242,67 @@ def plot_2d_z(data, **kwargs):
 
 # ------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------
-def plot_1d_z(data, daterange, **kwargs):
-    # TODO handle counts correctly for unmerged data
-    if kwargs['unmerged']:
-        data_unmerged = data
-        data = data_unmerged[-1]
-    else:
-        data_unmerged = [data,]
+def plot_1d(data, **kwargs):
+    print("Plot 1D", data)
 
-    print("Plot 1D (unmerged={})".format(kwargs['unmerged']), data)
+    bin_centers = (data.bin_edges[0][:-1] + data.bin_edges[0][1:]) / 2.0
+    bin_widths = (data.bin_edges[0][1:] - data.bin_edges[0][:-1])
+
+    def plot_common_pre(title=""):
+        plt.figure(figsize=(8.0, 4.0))
+        ax = plt.axes()
+        plt.title(data.obsvar+" "+title)
+        ax.set_xlabel(data.bin_dims[0])
+    
+    def plot_common_post(type_):
+        bbox_inches ='tight' if kwargs['thumbnail'] else None
+        plt.savefig("{}{}.{}.{}.png".format(
+            kwargs['prefix'], data.obsvar, data.name, type_),
+            bbox_inches = bbox_inches)
+        plt.close()
+
+    # counts
+    bar_widths = bin_widths - numpy.min(bin_widths)*0.1
+    plot_common_pre(title="counts")
+    plt.bar(bin_centers, data.count(qc=False)/bar_widths, color='C0', alpha=0.4,
+             width=bar_widths)
+    plt.bar(bin_centers, data.count(qc=True)/bar_widths, color='C0',
+             width=bar_widths)
+    plot_common_post('counts')
+
+    # rmsd
+    plot_common_pre(title="rmsd")
+    for p in ('ombg', 'oman'):
+        rmsd = data.rmsd(mode=p)
+        plt.plot(bin_centers, rmsd, color='C0', alpha=1.0, lw=2.0,
+             ls='--' if p == 'oman' else None)
+    plt.axvline(x=0.0, color='black', alpha=0.5)
+    plot_common_post('rmsd')
+
+    # bias
+    plot_common_pre(title="bias")
+    for p in ('ombg', 'oman'):
+        bias = data.mean(mode=p)
+        plt.plot(bin_centers, bias, color='C0', alpha=1.0, lw=2.0,
+             ls='--' if p == 'oman' else None)
+    plt.axvline(x=0.0, color='black', alpha=0.5)
+    plot_common_post('bias')
+
+# ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+def plot_1d_z(data, daterange, **kwargs):
+    # TODO handle counts correctly for timeseries data
+    if kwargs['timeseries']:
+        data_timeseries = data
+        data = data_timeseries[-1]
+    else:
+        data_timeseries = [data,]
+
+    print("Plot 1D (timeseries={})".format(kwargs['timeseries']), data)
             
     bin_centers = (data.bin_edges[0][:-1] + data.bin_edges[0][1:]) / 2.0
     bin_widths = (data.bin_edges[0][1:] - data.bin_edges[0][:-1])
-    count_qc = data.count(qc=True)
+    # count_qc = data.count(qc=True)
 
     def plot_common_pre(title=""):
         plt.figure(figsize=(4.0, 8.0))
@@ -288,7 +336,7 @@ def plot_1d_z(data, daterange, **kwargs):
     # rmsd
     plot_common_pre(title="rmsd")
     for p in ('ombg', 'oman'):
-        for data in data_unmerged:
+        for data in data_timeseries:
             rmsd = data.rmsd(mode=p)
             plt.plot(rmsd, bin_centers, color='C0', alpha=0.2,
                      ls='--' if p == 'oman' else None)
@@ -300,7 +348,7 @@ def plot_1d_z(data, daterange, **kwargs):
     # bias
     plot_common_pre(title="bias")
     for p in ('ombg', 'oman'):
-        for data in data_unmerged:
+        for data in data_timeseries:
             bias = data.mean(mode=p)
             plt.plot(bias, bin_centers, color='C0', alpha=0.2,
                      ls='--' if p == 'oman' else None)
@@ -327,7 +375,7 @@ def main():
     parser_opt.add_argument('--prefix', default="")    
     parser_opt.add_argument('--thumbnail', action="store_true", default=False,
                         help='Create smaller images without labels and colorbars')
-    parser_opt.add_argument('--unmerged', default = False, action="store_true",
+    parser_opt.add_argument('--timeseries', default = False, action="store_true",
                         help='')
     parser_opt.add_argument('-label', nargs="+", required=False)
     
@@ -346,20 +394,18 @@ def main():
         sys.exit(1)
 
     # read and merge data
-    # TODO I don't like the whole "unmerged" business
+    # TODO I don't like the whole "timeseries" business
     exps=[]
     for files in enumerate(args.exp):
-        data = None
-        data_unmerged = []
-        for f in files[1]:
+        data = []
+        for f in sorted(files[1]):
             print('Loading: ', f)
             bs = BinnedStatsCollection.load(filename=f, exp=args.label[files[0]])
-            if data is None:
-                data = bs
-            else:
-                data += bs
-            if args.unmerged:
-                data_unmerged.append(bs)
+            data.append(bs)
+        if args.timeseries:
+            data = BinnedStatsCollection.timeseries(data)
+        else:
+            data = BinnedStatsCollection.merge(data)       
         exps.append(data)
 
     if len(exps) == 1:
@@ -373,32 +419,37 @@ def main():
     print("Generating plots for: ", data)
     print("")
 
-    # TODO check to make sure unmerged data is same format
+    # TODO check to make sure timeseries data is same format
     for k, v in data.binned_stats.items():
         
         # determine what kind of plot this is
         s = set(v.bin_dims)
-        if len(v.bin_dims) == 3 and set(('latitude', 'longitude')).issubset(s):
-            # Multiple 2D lat/lon plots
+
+         # Multiple 2D lat/lon plots
+        if len(v.bin_dims) == 3 and set(('latitude', 'longitude')).issubset(s):           
             plot_3d_xy(v)
-        elif set(('latitude', 'longitude')) == s:
-            # 2D lat/lon plot
+        
+        # 2D lat/lon plot
+        elif set(('latitude', 'longitude')) == s:            
             plot_2d_xy(v, **vars(args), exp_name=data.exp())
+        
+        # 2D cross section plots wrt depth ( or some other variable)            
         elif len(v.bin_dims) == 2 and \
-                len(set(('latitude', 'longitude')).intersection(s)) == 1:
-            # 2D cross section plots wrt depth ( or some other variable)
+                len(set(('latitude', 'longitude')).intersection(s)) == 1:            
             plot_2d_z(v, **vars(args))
+        
+        # 1D line plots with height
         elif len(v.bin_dims) == 1 and  v.bin_dims[0] in zdims:
-            # 1D line plots with height
-            if args.unmerged:
-                v = [d.binned_stats[k] for d in data_unmerged]            
+            if args.timeseries:
+                v = [d.binned_stats[k] for d in data]            
             plot_1d_z(v, data.daterange, **vars(args))
+        
+        # probably a 1D line plot over some other dimension
         elif len(v.bin_dims) == 1:
-            # probably a 1D line plot over some other dimension
-            # TODO, combine with the above subset
-            print("unknown type: ", s)
+            plot_1d(v, **vars(args))
+        
         else:
-            # TODO handle 0-D data with a timeseries
+            # TODO handle 0-D data with a timeseries            
             print("whoa, you shouldn't get here.")
 
 if __name__ == "__main__":

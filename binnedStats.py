@@ -36,6 +36,27 @@ class BinnedStatsCollectionDiff:
         return "{}-{}".format(self._collection1.exp(), self._collection2.exp())
 
 
+class BinnedStatsCollectionTimeseries:
+    def __init__(self, stats):
+        # TODO ensure the two collections are congruent
+        self.obsvar = stats[0].obsvar
+        self.bin_config = stats[0].bin_config
+        self.binned_stats = {}        
+
+        # WRONG        
+        self.daterange = stats[0].daterange
+        for k in stats[0].binned_stats:
+            self.binned_stats[k] = BinnedStatsTimeseries( [stats[i].binned_stats[k] for i in range(len(stats))])
+
+    def __str__(self):
+        return ('<BinnedStatsCollectionTimeseries exp="({})" variable="{}" bins="{}" dates="{} to {}">'.format(
+            self.exp(), self.obsvar, len(self.binned_stats),
+            self.daterange[0].strftime("%Y%m%dT%X"), self.daterange[1].strftime("%Y%m%dT%X")))
+
+    def exp(self):
+        return "TBI"
+
+
 # TODO make histogram calls go faster
 # TODO handle region subselection
 # TODO handle binning extents 
@@ -96,6 +117,10 @@ class BinnedStatsCollection:
         return cls
 
     @staticmethod
+    def timeseries(stats):
+        return BinnedStatsCollectionTimeseries(stats)
+
+    @staticmethod
     def merge(stats):
         cls = copy.deepcopy(stats[0])
         # make sure each input field has same properties
@@ -120,6 +145,9 @@ class BinnedStatsCollection:
         return ('<BinnedStatsCollection exp="{}" variable="{}" bins="{}" dates="{} to {}">'.format(
             self.exp(), self.obsvar, len(self.binned_stats), self.daterange[0].strftime("%Y%m%dT%X"), self.daterange[1].strftime("%Y%m%dT%X")))
 
+class BinnedStatsTimeseries:
+    def __init__(self, series):
+        self.bin_dims = series[0].bin_dims +('time',)
 
 class BinnedStatsDiff:
     def __init__(self, stats1, stats2):
@@ -140,7 +168,6 @@ class BinnedStatsDiff:
         return self._stats1.rmsd(mode)-self._stats2.rmsd(mode)
 
     def mean(self, mode):
-        #WRONG
         return self._stats1.mean(mode)-self._stats2.mean(mode)
 
     def __str__(self):
@@ -149,6 +176,8 @@ class BinnedStatsDiff:
 
 
 class BinnedStats:
+    ''' stats for a single timeslice within arbitrary dimensions'''
+
     def __init__(self, data, binning_spec):
         self.obsvar = None        
         self.bin_dims = None
@@ -245,6 +274,8 @@ class BinnedStats:
     
     def exps(self):
         return 1
+
+
 
 class Region:
     def __init__(self, name):
