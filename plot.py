@@ -156,6 +156,78 @@ def plot_2d_xy(data, **kwargs):
 
 # ------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------
+def plot_2d(data, **kwargs):
+    print("Plot 2D ", data)
+
+    #TODO figure out the correct order for the axes
+
+    mesh_i, mesh_j = numpy.meshgrid(data.bin_edges[0], data.bin_edges[1])
+    
+    def plot_common_pre(title=""):
+        plt.figure(figsize=(8.0, 4.0))
+        ax = plt.axes()
+        ax.set_facecolor('lightgray')
+        plt.title(data.obsvar+" "+title)
+        #plt.axvline(x=0.0, color='k', alpha=0.5)
+        ax.set_xlabel(data.bin_dims[0])
+        ax.set_ylabel(data.bin_dims[1])
+        #if data.bin_dims[idx_z] in ('depth',):
+         #   plt.gca().invert_yaxis()
+        #dstr = [d.strftime("%Y-%m-%d") for d in dates]
+        #dstr = dstr[0] if dstr[0] == dstr[1] else dstr[0] + ' to ' + dstr[1]
+        #plt.annotate(dstr, ha='right', xycoords='axes points', xy=(420, -24.0))
+        return ax
+    
+    def plot_common_post(type_):
+        plt.colorbar(orientation='vertical', shrink=0.7, fraction=0.02)
+        plt.savefig("{}{}.{}.{}.png".format(
+            kwargs['prefix'], data.obsvar, data.name, type_))
+        plt.close()
+
+    # counts
+    for p in ('count', 'count_qc'):
+        d = data.count(qc=p=='count_qc')
+        if p == 'count':
+            dRange = numpy.percentile(d[d>0], [99])[0]
+        plot_common_pre(title=p)
+        plt.pcolormesh(mesh_i, mesh_j, d,
+                       cmap=cmap_seq, norm=colors.LogNorm(vmin=1.0, vmax=dRange))
+        plot_common_post(p)
+
+    # pct bad
+    count = data.count(qc=False)
+    count_qc = data.count(qc=True)
+    d = count - count_qc
+    d[count > 0] /= count[count > 0]
+    d = numpy.ma.masked_where(count == 0, d)
+    # dMin = numpy.min(d[count > 0])
+    # dMax = numpy.max(d)
+    # dAvg = numpy.mean(d[count > 0])
+    plot_common_pre(title=" count_pctbad")
+    plt.pcolormesh(mesh_i, mesh_j, d, cmap=cmap_seq)
+    plot_common_post('count_pctbad')
+    
+    # rmsd
+    for p in ('ombg', 'oman'):        
+        d = data.rmsd(mode=p)
+        if p == 'ombg':
+            dRange = numpy.percentile(d[count_qc > 0], [1,99])
+        plot_common_pre(title=p+" rmsd")
+        plt.pcolormesh(mesh_i, mesh_j, d, cmap=cmap_seq, norm=colors.LogNorm(*dRange))
+        plot_common_post(p+'_rmsd')
+        
+    
+    # bias
+    for p in ('ombg', 'oman'):
+        d = data.mean(mode=p)
+        if p == 'ombg':
+            dRange = numpy.max(numpy.abs(
+                numpy.percentile(d[count_qc > 0], [1,99])))
+        plot_common_pre(title=p+' bias')
+        plt.pcolormesh(mesh_i, mesh_j, d, cmap=cmap_div, vmin=-dRange, vmax=dRange)
+        plot_common_post(p+'_bias')
+# ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 def plot_2d_z(data, **kwargs):
     print("Plot 2D (? x depth) ", data)
 
@@ -432,17 +504,22 @@ def main():
         # 2D lat/lon plot
         elif set(('latitude', 'longitude')) == s:            
             plot_2d_xy(v, **vars(args), exp_name=data.exp())
+
+        # 2D plot that is NOT lat/lon
+        elif len(v.bin_dims) == 2:
+            plot_2d(v, **vars(args), exp_name=data.exp())
+
+        # # 2D cross section plots wrt depth ( or some other variable)  
+        # # TODO check this          
+        # elif len(v.bin_dims) == 2 and \
+        #         len(set(('latitude', 'longitude')).intersection(s)) == 1:            
+        #     plot_2d_z(v, **vars(args))
         
-        # 2D cross section plots wrt depth ( or some other variable)            
-        elif len(v.bin_dims) == 2 and \
-                len(set(('latitude', 'longitude')).intersection(s)) == 1:            
-            plot_2d_z(v, **vars(args))
-        
-        # 1D line plots with height
-        elif len(v.bin_dims) == 1 and  v.bin_dims[0] in zdims:
-            if args.timeseries:
-                v = [d.binned_stats[k] for d in data]            
-            plot_1d_z(v, data.daterange, **vars(args))
+        # # 1D line plots with height
+        # elif len(v.bin_dims) == 1 and  v.bin_dims[0] in zdims:
+        #     if args.timeseries:
+        #         v = [d.binned_stats[k] for d in data]            
+        #     plot_1d_z(v, data.daterange, **vars(args))
         
         # probably a 1D line plot over some other dimension
         elif len(v.bin_dims) == 1:

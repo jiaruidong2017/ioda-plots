@@ -145,9 +145,39 @@ class BinnedStatsCollection:
         return ('<BinnedStatsCollection exp="{}" variable="{}" bins="{}" dates="{} to {}">'.format(
             self.exp(), self.obsvar, len(self.binned_stats), self.daterange[0].strftime("%Y%m%dT%X"), self.daterange[1].strftime("%Y%m%dT%X")))
 
+
 class BinnedStatsTimeseries:
     def __init__(self, series):
+        self.name = series[0].name
+        self.obsvar = series[0].obsvar
         self.bin_dims = series[0].bin_dims +('time',)
+        self._series = series
+
+        # TODO use the correct datetimes
+        self.bin_edges = series[0].bin_edges
+        self.bin_edges += ( list(range(len(series)+1)), )
+
+    def __str__(self):
+        return ('<BinnedStatsTimeseries name="{}" variable="{}" dims="{}">'.format(
+            self.name, self.obsvar, self.bin_dims))
+
+    def count(self, qc=False):
+        ar=[]
+        for s in self._series:
+            ar.append(s.count(qc))
+        return numpy.array(ar)
+    
+    def rmsd(self, mode):
+        ar=[]
+        for s in self._series:
+            ar.append(s.rmsd(mode))
+        return numpy.array(ar)
+
+    def mean(self, mode):
+        ar=[]
+        for s in self._series:
+            ar.append(s.mean(mode))
+        return numpy.array(ar)
 
 class BinnedStatsDiff:
     def __init__(self, stats1, stats2):
