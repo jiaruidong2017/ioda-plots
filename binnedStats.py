@@ -85,7 +85,7 @@ class BinnedStatsCollection:
     def save(self, filename):
         print('writing binned stats to: ', filename)
         f = gzip.GzipFile(filename, 'wb')
-        f.write(pickle.dumps(self.__dict__, 1))
+        f.write(pickle.dumps(self.__dict__, -1))
         f.close()
 
     @staticmethod
@@ -155,7 +155,7 @@ class BinnedStatsTimeseries:
 
         # TODO use the correct datetimes
         self.bin_edges = series[0].bin_edges
-        self.bin_edges += ( list(range(len(series)+1)), )
+        self.bin_edges += ( numpy.array(range(len(series)+1)), )
 
     def __str__(self):
         return ('<BinnedStatsTimeseries name="{}" variable="{}" dims="{}">'.format(
@@ -209,6 +209,8 @@ class BinnedStats:
     ''' stats for a single timeslice within arbitrary dimensions'''
 
     def __init__(self, data, binning_spec):
+        # TODO implement region bounding
+
         self.obsvar = None        
         self.bin_dims = None
         self.bin_edges = None
@@ -229,6 +231,9 @@ class BinnedStats:
         # setup the bins for each dimension
         if 'dims' in binning_spec:
             self.bin_dims, self.bin_edges = gen_bins(binning_spec['dims'])
+        else:
+            self.bin_dims = ()
+            self.bin_edges = ()
 
         assert self.bin_dims is not None
 
@@ -248,21 +253,33 @@ class BinnedStats:
             dim_val_qc.append(d[mask_qc])
 
         # counts
-        H, _ = numpy.histogramdd(dim_val, self.bin_edges)
+        if len(self.bin_dims) > 0:
+            H, _ = numpy.histogramdd(dim_val, self.bin_edges)
+        else:
+            H = len(mask_qc)
         self._data['count'] = H
 
         # counts (qc)
-        H, _ = numpy.histogramdd(dim_val_qc, self.bin_edges)
+        if len(self.bin_dims) > 0:
+            H, _ = numpy.histogramdd(dim_val_qc, self.bin_edges)
+        else:
+            H = int(numpy.sum(mask_qc > 0))
         self._data['count_qc'] = H
-
+        
         # oman, ombg
         for v in ('oman', 'ombg'):
             val = data[self.obsvar+'@'+v][mask_qc]
-            H, _ = numpy.histogramdd(dim_val_qc, self.bin_edges, weights=val)
+            if len(self.bin_dims) > 0:
+                H, _ = numpy.histogramdd(dim_val_qc, self.bin_edges, weights=val)
+            else:
+                H = numpy.sum(val) 
             self._data[v+'_sum'] = H
 
             val = val**2
-            H, _ = numpy.histogramdd(dim_val_qc, self.bin_edges, weights=val)
+            if len(self.bin_dims) > 0:
+                H, _ = numpy.histogramdd(dim_val_qc, self.bin_edges, weights=val)
+            else:
+                H = numpy.sum(val)
             self._data[v+'_sum2'] = H
 
     def __add__(self, other):
@@ -289,17 +306,24 @@ class BinnedStats:
         assert mode in ('ombg','oman')
         d = self._data[mode+'_sum2']
         count_qc = self.count(qc=True)
-        d[count_qc > 0] /= count_qc[count_qc > 0]
-        d = numpy.sqrt(d)
-        d = numpy.ma.masked_where(count_qc == 0, d)
+        if len(self.bin_dims) == 0:
+            d = d / count_qc
+            d = numpy.sqrt(d)
+        else:
+            d[count_qc > 0] /= count_qc[count_qc > 0]
+            d = numpy.sqrt(d)
+            d = numpy.ma.masked_where(count_qc == 0, d)
         return d
 
     def mean(self, mode):
         assert mode in ('ombg','oman')
         d = self._data[mode +'_sum']
         count_qc = self.count(qc=True)
-        d[count_qc > 0] /= count_qc[count_qc > 0]
-        d = numpy.ma.masked_where(count_qc == 0, d)
+        if len(self.bin_dims) == 0:
+            d = d / count_qc
+        else:
+            d[count_qc > 0] /= count_qc[count_qc > 0]
+            d = numpy.ma.masked_where(count_qc == 0, d)
         return d
     
     def exps(self):
