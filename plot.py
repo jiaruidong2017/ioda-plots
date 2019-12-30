@@ -314,9 +314,17 @@ def plot_2d_z(data, **kwargs):
 
 # ------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------
-def plot_1d(data, **kwargs):
-    print("Plot 1D", data)
+def plot_1d(exps, **kwargs):
+    print("Plot 1D", exps)
 
+    # handle either a list or a single exp being passed in
+    if type(exps) is list:
+        data = exps[0]
+    else:
+        data = exps
+        exps = [data,]
+
+    # TODO make sure meta data is same across exps
     bin_centers = (data.bin_edges[0][:-1] + data.bin_edges[0][1:]) / 2.0
     bin_widths = (data.bin_edges[0][1:] - data.bin_edges[0][:-1])
 
@@ -333,32 +341,39 @@ def plot_1d(data, **kwargs):
             bbox_inches = bbox_inches)
         plt.close()
 
-    # counts
-    bar_widths = bin_widths - numpy.min(bin_widths)*0.1
-    plot_common_pre(title="counts")
-    plt.bar(bin_centers, data.count(qc=False)/bar_widths, color='C0', alpha=0.4,
-             width=bar_widths)
-    plt.bar(bin_centers, data.count(qc=True)/bar_widths, color='C0',
-             width=bar_widths)
-    plot_common_post('counts')
+    # # counts
+    # bar_widths = bin_widths - numpy.min(bin_widths)*0.1
+    # plot_common_pre(title="counts")
+    # plt.bar(bin_centers, data.count(qc=False)/bar_widths, color='C0', alpha=0.4,
+    #          width=bar_widths)
+    # plt.bar(bin_centers, data.count(qc=True)/bar_widths, color='C0',
+    #          width=bar_widths)
+    # plot_common_post('counts')
 
     # rmsd
     plot_common_pre(title="rmsd")
-    for p in ('ombg', 'oman'):
-        rmsd = data.rmsd(mode=p)
-        plt.plot(bin_centers, rmsd, color='C0', alpha=1.0, lw=2.0,
-             ls='--' if p == 'oman' else None)
+    for e in enumerate(exps):
+        for p in ('ombg', 'oman'):
+            rmsd = e[1].rmsd(mode=p)
+            plt.plot(bin_centers, rmsd, color='C{}'.format(e[0]), alpha=1.0, lw=2.0,
+                label = kwargs['label'][e[0]] if p == 'ombg' else None,
+                ls='--' if p == 'oman' else None)
+    plt.legend()
     plt.axvline(x=0.0, color='black', alpha=0.5)
     plot_common_post('rmsd')
 
     # bias
     plot_common_pre(title="bias")
-    for p in ('ombg', 'oman'):
-        bias = data.mean(mode=p)
-        plt.plot(bin_centers, bias, color='C0', alpha=1.0, lw=2.0,
-             ls='--' if p == 'oman' else None)
+    for e in enumerate(exps):
+        for p in ('ombg', 'oman'):
+            bias = e[1].mean(mode=p)
+            plt.plot(bin_centers, bias, color='C{}'.format(e[0]), alpha=1.0, lw=2.0,
+                label = kwargs['label'][e[0]] if p == 'ombg' else None,
+                ls='--' if p == 'oman' else None)
+    plt.legend()
     plt.axvline(x=0.0, color='black', alpha=0.5)
     plot_common_post('bias')
+
 
 # ------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------
@@ -465,8 +480,7 @@ def main():
         print("ERROR: number of '-label' arguments must equal number of '-exp' given.")
         sys.exit(1)
 
-    # read and merge data
-    # TODO I don't like the whole "timeseries" business
+    # read and merge data. If a timeseries is specified, stats are not merged
     exps=[]
     for files in enumerate(args.exp):
         data = []
@@ -480,13 +494,14 @@ def main():
             data = BinnedStatsCollection.merge(data)       
         exps.append(data)
 
-    if len(exps) == 1:
-        data = exps[0]
-    elif len(exps) == 2:
-        data = exps[0] - exps[1]
-    else:
-        print("ERROR: unable to handle >2 exps currently.")
-        sys.exit(1)
+    # # calculate the difference between the first experiment, if doing a comparison
+    # if len(exps) == 1:
+    #     data = exps[0]
+    # elif len(exps) == 2:
+    #     data = exps[0] - exps[1]
+    # else:
+    #     print("ERROR: unable to handle >2 exps currently.")
+    #     sys.exit(1)
 
     print("Generating plots for: ", data)
     print("")
@@ -497,17 +512,26 @@ def main():
         # determine what kind of plot this is
         s = set(v.bin_dims)
 
+        # get all data frames for the experiments
+        exps_v = [ e.binned_stats[k] for e in exps ]
+
+
+        # The following can only be done for a single experiment
+        #----------------------------------------------------------------------
+
          # Multiple 2D lat/lon plots
-        if len(v.bin_dims) == 3 and set(('latitude', 'longitude')).issubset(s):           
-            plot_3d_xy(v)
+        if ( len(exps) == 1 and len(v.bin_dims) == 3 
+             and set(('latitude', 'longitude')).issubset(s)):
+            plot_3d_xy(exps_v[0])
         
         # 2D lat/lon plot
-        elif set(('latitude', 'longitude')) == s:            
-            plot_2d_xy(v, **vars(args), exp_name=data.exp())
+        elif ( len(exps) == 1 
+               and set(('latitude', 'longitude'))) == s:
+            plot_2d_xy(exps_v[0], **vars(args), exp_name=data.exp())
 
         # 2D plot that is NOT lat/lon
-        elif len(v.bin_dims) == 2:
-            plot_2d(v, **vars(args), exp_name=data.exp())
+        elif len(exps) == 1 and len(v.bin_dims) == 2:
+            plot_2d(exps_v[0], **vars(args), exp_name=data.exp())
 
         # # 2D cross section plots wrt depth ( or some other variable)  
         # # TODO check this          
@@ -521,13 +545,16 @@ def main():
         #         v = [d.binned_stats[k] for d in data]            
         #     plot_1d_z(v, data.daterange, **vars(args))
         
+        # The following can only be done for any number of experiments
+        #----------------------------------------------------------------------
+
         # probably a 1D line plot over some other dimension
         elif len(v.bin_dims) == 1:
-            plot_1d(v, **vars(args))
+            plot_1d(exps_v, **vars(args))
         
         else:
             # TODO handle 0-D data with a timeseries            
-            print("whoa, you shouldn't get here.")
+            print("Skipping ", v)
 
 if __name__ == "__main__":
     main()
