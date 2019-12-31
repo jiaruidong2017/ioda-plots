@@ -41,7 +41,7 @@ class BinnedStatsCollectionTimeseries:
         # TODO ensure the two collections are congruent
         self.obsvar = stats[0].obsvar
         self.bin_config = stats[0].bin_config
-        self.binned_stats = {}        
+        self.binned_stats = {}
 
         # WRONG        
         self.daterange = stats[0].daterange
@@ -55,6 +55,9 @@ class BinnedStatsCollectionTimeseries:
 
     def exp(self):
         return "TBI"
+    
+    def __sub__(self, other):
+        return BinnedStatsCollectionDiff(self, other)
 
 
 # TODO make histogram calls go faster
@@ -161,6 +164,9 @@ class BinnedStatsTimeseries:
         return ('<BinnedStatsTimeseries name="{}" variable="{}" dims="{}">'.format(
             self.name, self.obsvar, self.bin_dims))
 
+    def __sub__(self, other):
+        return BinnedStatsDiff(self, other)
+
     def count(self, qc=False):
         ar=[]
         for s in self._series:
@@ -178,6 +184,7 @@ class BinnedStatsTimeseries:
         for s in self._series:
             ar.append(s.mean(mode))
         return numpy.array(ar)
+
 
 class BinnedStatsDiff:
     def __init__(self, stats1, stats2):

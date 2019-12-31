@@ -9,24 +9,20 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 
-# TODO add support for multiple experiments
-# TODO add "timeseries" line plots
-# TODO finish 3d_xy
-# TODO finish 1d_z
 
 zdims = ('height','depth')
 cmap_div="RdBu_r"
 cmap_seq="inferno"
 
-# ------------------------------------------------------------------------------
-# ------------------------------------------------------------------------------
-def plot_3d_xy(data):
-    #######################################
-    # TODO implement this!
-    #######################################
-    print("Plot 3D (latlon) ", data)
-    # which dimension is the non lat/lon dim
-    # zdim = (set(data.bin_dims) - set(('latitude','longitude'))).pop()
+# # ------------------------------------------------------------------------------
+# # ------------------------------------------------------------------------------
+# def plot_3d_xy(data):
+#     #######################################
+#     # TODO implement this!
+#     #######################################
+#     print("Plot 3D (latlon) ", data)
+#     # which dimension is the non lat/lon dim
+#     # zdim = (set(data.bin_dims) - set(('latitude','longitude'))).pop()
 
 
 # ------------------------------------------------------------------------------
@@ -211,9 +207,17 @@ def plot_2d(data, **kwargs):
     for p in ('ombg', 'oman'):        
         d = data.rmsd(mode=p)
         if p == 'ombg':
-            dRange = numpy.percentile(d[count_qc > 0], [1,99])
+            if data.exps() == 1:
+                dRange = numpy.percentile(d[count_qc > 0], [1, 99])
+                norm=colors.LogNorm(*dRange)
+                cmap=cmap_seq
+            else:
+                dRange = numpy.max(numpy.abs(
+                    numpy.percentile(d[count_qc > 0], [1, 99])))
+                norm=colors.Normalize(vmin=-dRange, vmax=dRange)
+                cmap=cmap_div
         plot_common_pre(title=p+" rmsd")
-        plt.pcolormesh(mesh_i, mesh_j, d, cmap=cmap_seq, norm=colors.LogNorm(*dRange))
+        plt.pcolormesh(mesh_i, mesh_j, d, cmap=cmap, norm=norm)
         plot_common_post(p+'_rmsd')
         
     
@@ -226,90 +230,92 @@ def plot_2d(data, **kwargs):
         plot_common_pre(title=p+' bias')
         plt.pcolormesh(mesh_i, mesh_j, d, cmap=cmap_div, vmin=-dRange, vmax=dRange)
         plot_common_post(p+'_bias')
-# ------------------------------------------------------------------------------
-# ------------------------------------------------------------------------------
-def plot_2d_z(data, **kwargs):
-    print("Plot 2D (? x depth) ", data)
 
-    # TODO plot variable size based on dimensions
-    # TODO thumbnail mode
-    # TODO add real date annotation
-    # TODO shrink the colorbar padding
-    dates=[datetime.now(), datetime.now()]
 
-    idx_z = 0 if data.bin_dims[0] in zdims else 1
-    idx_x = 1 if idx_z is 0 else 0
-    mesh_x, mesh_z = numpy.meshgrid(data.bin_edges[idx_x], data.bin_edges[idx_z])
+# # ------------------------------------------------------------------------------
+# # ------------------------------------------------------------------------------
+# def plot_2d_z(data, **kwargs):
+#     print("Plot 2D (? x depth) ", data)
 
-    def plot_common_pre(title=""):
-        plt.figure(figsize=(8.0, 4.0))
-        ax = plt.axes()
-        ax.set_facecolor('lightgray')
-        plt.title(data.obsvar+" "+title)
-        plt.axvline(x=0.0, color='k', alpha=0.5)
-        ax.set_xlabel(data.bin_dims[idx_x])
-        ax.set_ylabel(data.bin_dims[idx_z])
-        if data.bin_dims[idx_z] in ('depth',):
-            plt.gca().invert_yaxis()
-        dstr = [d.strftime("%Y-%m-%d") for d in dates]
-        dstr = dstr[0] if dstr[0] == dstr[1] else dstr[0] + ' to ' + dstr[1]
-        plt.annotate(dstr, ha='right', xycoords='axes points', xy=(420, -24.0))
-        return ax
+#     # TODO plot variable size based on dimensions
+#     # TODO thumbnail mode
+#     # TODO add real date annotation
+#     # TODO shrink the colorbar padding
+#     dates=[datetime.now(), datetime.now()]
 
-    def plot_common_post(type_):
-        plt.colorbar(orientation='vertical', shrink=0.7, fraction=0.02)
-        plt.savefig("{}{}_{}_{}.png".format(
-            kwargs['prefix'], data.obsvar, data.name, type_))
-        plt.close()
+#     idx_z = 0 if data.bin_dims[0] in zdims else 1
+#     idx_x = 1 if idx_z is 0 else 0
+#     mesh_x, mesh_z = numpy.meshgrid(data.bin_edges[idx_x], data.bin_edges[idx_z])
 
-    # counts
-    for p in ('count', 'count_qc'):
-        d = data.count(qc=p=='count_qc')
-        # dMax = numpy.max(d)
-        # dSum = numpy.sum(d)
-        if p == 'count':
-            dRange = numpy.percentile(d[d>0], [99])[0]
-        plot_common_pre(title=p)
-        plt.pcolormesh(mesh_x, mesh_z, d,
-                       cmap=cmap_seq, norm=colors.LogNorm(vmin=1.0, vmax=dRange))
-        plot_common_post(p)
+#     def plot_common_pre(title=""):
+#         plt.figure(figsize=(8.0, 4.0))
+#         ax = plt.axes()
+#         ax.set_facecolor('lightgray')
+#         plt.title(data.obsvar+" "+title)
+#         plt.axvline(x=0.0, color='k', alpha=0.5)
+#         ax.set_xlabel(data.bin_dims[idx_x])
+#         ax.set_ylabel(data.bin_dims[idx_z])
+#         if data.bin_dims[idx_z] in ('depth',):
+#             plt.gca().invert_yaxis()
+#         dstr = [d.strftime("%Y-%m-%d") for d in dates]
+#         dstr = dstr[0] if dstr[0] == dstr[1] else dstr[0] + ' to ' + dstr[1]
+#         plt.annotate(dstr, ha='right', xycoords='axes points', xy=(420, -24.0))
+#         return ax
 
-    # pct bad
-    count = data.count(qc=False)
-    count_qc = data.count(qc=True)
-    d = count - count_qc
-    d[count > 0] /= count[count > 0]
-    d = numpy.ma.masked_where(count == 0, d)
-    # dMin = numpy.min(d[count > 0])
-    # dMax = numpy.max(d)
-    # dAvg = numpy.mean(d[count > 0])
-    plot_common_pre(title=" count_pctbad")
-    plt.pcolormesh(mesh_x, mesh_z, d, cmap=cmap_seq)
-    plot_common_post('count_pctbad')
+#     def plot_common_post(type_):
+#         plt.colorbar(orientation='vertical', shrink=0.7, fraction=0.02)
+#         plt.savefig("{}{}_{}_{}.png".format(
+#             kwargs['prefix'], data.obsvar, data.name, type_))
+#         plt.close()
+
+#     # counts
+#     for p in ('count', 'count_qc'):
+#         d = data.count(qc=p=='count_qc')
+#         # dMax = numpy.max(d)
+#         # dSum = numpy.sum(d)
+#         if p == 'count':
+#             dRange = numpy.percentile(d[d>0], [99])[0]
+#         plot_common_pre(title=p)
+#         plt.pcolormesh(mesh_x, mesh_z, d,
+#                        cmap=cmap_seq, norm=colors.LogNorm(vmin=1.0, vmax=dRange))
+#         plot_common_post(p)
+
+#     # pct bad
+#     count = data.count(qc=False)
+#     count_qc = data.count(qc=True)
+#     d = count - count_qc
+#     d[count > 0] /= count[count > 0]
+#     d = numpy.ma.masked_where(count == 0, d)
+#     # dMin = numpy.min(d[count > 0])
+#     # dMax = numpy.max(d)
+#     # dAvg = numpy.mean(d[count > 0])
+#     plot_common_pre(title=" count_pctbad")
+#     plt.pcolormesh(mesh_x, mesh_z, d, cmap=cmap_seq)
+#     plot_common_post('count_pctbad')
     
-    # rmsd
-    for p in ('ombg', 'oman'):        
-        d = data.rmsd(mode=p)
-        # dMax = numpy.max(d)
-        # dAvg = numpy.mean(d)
-        if p == 'ombg':
-            dRange = numpy.percentile(d[count_qc > 0], [1,99])
+#     # rmsd
+#     for p in ('ombg', 'oman'):        
+#         d = data.rmsd(mode=p)
+#         # dMax = numpy.max(d)
+#         # dAvg = numpy.mean(d)
+#         if p == 'ombg':
+#             dRange = numpy.percentile(d[count_qc > 0], [1,99])
 
-        plot_common_pre(title=p+" rmsd")
-        plt.pcolormesh(mesh_x, mesh_z, d, cmap=cmap_seq, norm=colors.LogNorm(*dRange))
-        plot_common_post(p+'_rmsd')
+#         plot_common_pre(title=p+" rmsd")
+#         plt.pcolormesh(mesh_x, mesh_z, d, cmap=cmap_seq, norm=colors.LogNorm(*dRange))
+#         plot_common_post(p+'_rmsd')
 
-    # bias
-    for p in ('ombg', 'oman'):
-        d = data.mean(mode=p)
-        # dMax = max(numpy.max(d), abs(numpy.min(d)))
-        # dAvg = numpy.mean(d[count_qc > 0])
-        if p == 'ombg':
-            dRange = numpy.max(numpy.abs(
-                numpy.percentile(d[count_qc > 0], [1,99])))
-        plot_common_pre(title=p+' bias')
-        plt.pcolormesh(mesh_x, mesh_z, d, cmap=cmap_div, vmin=-dRange, vmax=dRange)
-        plot_common_post(p+'_bias')
+#     # bias
+#     for p in ('ombg', 'oman'):
+#         d = data.mean(mode=p)
+#         # dMax = max(numpy.max(d), abs(numpy.min(d)))
+#         # dAvg = numpy.mean(d[count_qc > 0])
+#         if p == 'ombg':
+#             dRange = numpy.max(numpy.abs(
+#                 numpy.percentile(d[count_qc > 0], [1,99])))
+#         plot_common_pre(title=p+' bias')
+#         plt.pcolormesh(mesh_x, mesh_z, d, cmap=cmap_div, vmin=-dRange, vmax=dRange)
+#         plot_common_post(p+'_bias')
 
 
 # ------------------------------------------------------------------------------
@@ -375,74 +381,74 @@ def plot_1d(exps, **kwargs):
     plot_common_post('bias')
 
 
-# ------------------------------------------------------------------------------
-# ------------------------------------------------------------------------------
-def plot_1d_z(data, daterange, **kwargs):
-    # TODO handle counts correctly for timeseries data
-    if kwargs['timeseries']:
-        data_timeseries = data
-        data = data_timeseries[-1]
-    else:
-        data_timeseries = [data,]
+# # ------------------------------------------------------------------------------
+# # ------------------------------------------------------------------------------
+# def plot_1d_z(data, daterange, **kwargs):
+#     # TODO handle counts correctly for timeseries data
+#     if kwargs['timeseries']:
+#         data_timeseries = data
+#         data = data_timeseries[-1]
+#     else:
+#         data_timeseries = [data,]
 
-    print("Plot 1D (timeseries={})".format(kwargs['timeseries']), data)
+#     print("Plot 1D (timeseries={})".format(kwargs['timeseries']), data)
             
-    bin_centers = (data.bin_edges[0][:-1] + data.bin_edges[0][1:]) / 2.0
-    bin_widths = (data.bin_edges[0][1:] - data.bin_edges[0][:-1])
-    # count_qc = data.count(qc=True)
+#     bin_centers = (data.bin_edges[0][:-1] + data.bin_edges[0][1:]) / 2.0
+#     bin_widths = (data.bin_edges[0][1:] - data.bin_edges[0][:-1])
+#     # count_qc = data.count(qc=True)
 
-    def plot_common_pre(title=""):
-        plt.figure(figsize=(4.0, 8.0))
-        ax = plt.axes()
-        if data.bin_dims[0] == 'depth':
-            plt.gca().invert_yaxis()
-        if not kwargs['thumbnail']:
-            plt.title(data.obsvar+" "+title)
-            dstr = [d.strftime("%Y-%m-%d") for d in daterange]
-            dstr = dstr[0] if dstr[0] == dstr[1] else dstr[0] + " to " + dstr[1]        
-            plt.annotate(dstr, xycoords="axes points", xy=(0, -30.0))
-            ax.set_ylabel(data.bin_dims[0])
-        return ax
+#     def plot_common_pre(title=""):
+#         plt.figure(figsize=(4.0, 8.0))
+#         ax = plt.axes()
+#         if data.bin_dims[0] == 'depth':
+#             plt.gca().invert_yaxis()
+#         if not kwargs['thumbnail']:
+#             plt.title(data.obsvar+" "+title)
+#             dstr = [d.strftime("%Y-%m-%d") for d in daterange]
+#             dstr = dstr[0] if dstr[0] == dstr[1] else dstr[0] + " to " + dstr[1]        
+#             plt.annotate(dstr, xycoords="axes points", xy=(0, -30.0))
+#             ax.set_ylabel(data.bin_dims[0])
+#         return ax
 
-    def plot_common_post(type_):
-        bbox_inches ='tight' if kwargs['thumbnail'] else None
-        plt.savefig("{}{}_{}_{}.png".format(
-            kwargs['prefix'], data.obsvar, data.name, type_),
-            bbox_inches = bbox_inches)
-        plt.close()
+#     def plot_common_post(type_):
+#         bbox_inches ='tight' if kwargs['thumbnail'] else None
+#         plt.savefig("{}{}_{}_{}.png".format(
+#             kwargs['prefix'], data.obsvar, data.name, type_),
+#             bbox_inches = bbox_inches)
+#         plt.close()
 
-    # counts
-    bar_widths = bin_widths - numpy.min(bin_widths)*0.1
-    plot_common_pre(title="counts")
-    plt.barh(bin_centers, data.count(qc=False)/bar_widths, color='C0', alpha=0.4,
-             height=bar_widths)
-    plt.barh(bin_centers, data.count(qc=True)/bar_widths, color='C0',
-             height=bar_widths)
-    plot_common_post('counts')
+#     # counts
+#     bar_widths = bin_widths - numpy.min(bin_widths)*0.1
+#     plot_common_pre(title="counts")
+#     plt.barh(bin_centers, data.count(qc=False)/bar_widths, color='C0', alpha=0.4,
+#              height=bar_widths)
+#     plt.barh(bin_centers, data.count(qc=True)/bar_widths, color='C0',
+#              height=bar_widths)
+#     plot_common_post('counts')
 
-    # rmsd
-    plot_common_pre(title="rmsd")
-    for p in ('ombg', 'oman'):
-        for data in data_timeseries:
-            rmsd = data.rmsd(mode=p)
-            plt.plot(rmsd, bin_centers, color='C0', alpha=0.2,
-                     ls='--' if p == 'oman' else None)
-        plt.plot(rmsd, bin_centers, color='C0', alpha=1.0, lw=2.0,
-             ls='--' if p == 'oman' else None)
-    plt.axvline(x=0.0, color='black', alpha=0.5)
-    plot_common_post('rmsd')
+#     # rmsd
+#     plot_common_pre(title="rmsd")
+#     for p in ('ombg', 'oman'):
+#         for data in data_timeseries:
+#             rmsd = data.rmsd(mode=p)
+#             plt.plot(rmsd, bin_centers, color='C0', alpha=0.2,
+#                      ls='--' if p == 'oman' else None)
+#         plt.plot(rmsd, bin_centers, color='C0', alpha=1.0, lw=2.0,
+#              ls='--' if p == 'oman' else None)
+#     plt.axvline(x=0.0, color='black', alpha=0.5)
+#     plot_common_post('rmsd')
 
-    # bias
-    plot_common_pre(title="bias")
-    for p in ('ombg', 'oman'):
-        for data in data_timeseries:
-            bias = data.mean(mode=p)
-            plt.plot(bias, bin_centers, color='C0', alpha=0.2,
-                     ls='--' if p == 'oman' else None)
-        plt.plot(rmsd, bin_centers, color='C0', alpha=1.0, lw=2.0,
-             ls='--' if p == 'oman' else None)
-    plt.axvline(x=0.0, color='black', alpha=0.5)
-    plot_common_post('bias')
+#     # bias
+#     plot_common_pre(title="bias")
+#     for p in ('ombg', 'oman'):
+#         for data in data_timeseries:
+#             bias = data.mean(mode=p)
+#             plt.plot(bias, bin_centers, color='C0', alpha=0.2,
+#                      ls='--' if p == 'oman' else None)
+#         plt.plot(rmsd, bin_centers, color='C0', alpha=1.0, lw=2.0,
+#              ls='--' if p == 'oman' else None)
+#     plt.axvline(x=0.0, color='black', alpha=0.5)
+#     plot_common_post('bias')
             
 
 
@@ -459,6 +465,7 @@ def main():
         help="one or more files to load. This argument can be repeated to handle multiple experimetns (diff or multiple line plots)")
 
     parser_opt = parser
+    parser_opt.add_argument('--diff', default=False, action="store_true")
     parser_opt.add_argument('--prefix', default="")    
     parser_opt.add_argument('--thumbnail', action="store_true", default=False,
                         help='Create smaller images without labels and colorbars')
@@ -494,14 +501,14 @@ def main():
             data = BinnedStatsCollection.merge(data)       
         exps.append(data)
 
-    # # calculate the difference between the first experiment, if doing a comparison
-    # if len(exps) == 1:
-    #     data = exps[0]
-    # elif len(exps) == 2:
-    #     data = exps[0] - exps[1]
-    # else:
-    #     print("ERROR: unable to handle >2 exps currently.")
-    #     sys.exit(1)
+    # calculate the difference between the first experiment, if doing a comparison
+    if args.diff and len(exps) == 1:
+        raise Exception("cannot use '--compare' with only one '-exp' given")
+    elif args.diff:
+        for i in enumerate(exps[1:]):
+            exps[i[0]+1] -= exps[0]
+        exps = exps[1:]
+
 
     print("Generating plots for: ", data)
     print("")
@@ -519,13 +526,13 @@ def main():
         # The following can only be done for a single experiment
         #----------------------------------------------------------------------
 
-         # Multiple 2D lat/lon plots
-        if ( len(exps) == 1 and len(v.bin_dims) == 3 
-             and set(('latitude', 'longitude')).issubset(s)):
-            plot_3d_xy(exps_v[0])
+        #  # Multiple 2D lat/lon plots
+        # if ( len(exps) == 1 and len(v.bin_dims) == 3 
+        #      and set(('latitude', 'longitude')).issubset(s)):
+        #     plot_3d_xy(exps_v[0])
         
         # 2D lat/lon plot
-        elif ( len(exps) == 1 
+        if ( len(exps) == 1 
                and set(('latitude', 'longitude'))) == s:
             plot_2d_xy(exps_v[0], **vars(args), exp_name=data.exp())
 

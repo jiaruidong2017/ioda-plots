@@ -21,6 +21,9 @@ binning:
   dims:
     latitude: {res: 5.0}
 
+- name: global
+  vars: *vars_sat
+
 # - name: lat_satellite
 #   vars: *vars_sat
 #   dims:
