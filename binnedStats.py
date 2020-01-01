@@ -8,6 +8,7 @@ import yaml
 import copy
 import dateutil
 
+
 class BinnedStatsCollectionDiff:
     def __init__(self, collection1, collection2):
         # ensure the two collections are congruent
@@ -335,7 +336,6 @@ class BinnedStats:
     
     def exps(self):
         return 1
-
 
 
 class Region:

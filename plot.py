@@ -9,6 +9,9 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 
+import cartopy.crs as ccrs
+import matplotlib.ticker as mticker
+from cartopy.mpl import gridliner
 
 zdims = ('height','depth')
 cmap_div="RdBu_r"
@@ -27,143 +30,55 @@ cmap_seq="inferno"
 
 # ------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------
-def plot_2d_xy(data, **kwargs):
-    # TODO add real date annotation
-    # TODO shrink the colorbar padding
-    # TODO variable size based on dimension clipping           
-    import cartopy.crs as ccrs
-    import matplotlib.ticker as mticker
-    from cartopy.mpl import gridliner
-
-    print("Plot 2D-latlon ", data)
-    dates=[datetime.now(), datetime.now()]
-    proj = ccrs.PlateCarree(central_longitude=-155)
-    trans = ccrs.PlateCarree()
-    meshLons, meshLats = numpy.meshgrid(data.bin_edges[1], data.bin_edges[0])
+def plot_2d(data, **kwargs):
     
-    def plot_common_pre(title="", text=[]):
-        plt.figure(figsize= (4.0,2.0) if kwargs['thumbnail'] else (8.0, 4.0) )
-        ax = plt.axes(projection=proj)
-        ax.coastlines(color='k', alpha=0.5)
-        ax.background_patch.set_facecolor('lightgray')
-        if not kwargs['thumbnail']:
+    # figure out what type of plot
+    mesh_opt = {}
+    xy_type = ""
+    if set(('latitude','longitude')) == set(data.bin_dims):
+        # lat/lon
+        xy_type = "latlon"
+        proj = ccrs.PlateCarree(central_longitude=-155)
+        mesh_opt['transform'] = ccrs.PlateCarree()
+        i_dim = data.bin_dims.index('longitude')
+        j_dim = data.bin_dims.index('latitude')
+        def plot_type_pre(ax):
+            # lat/lon axes
             gl = ax.gridlines(zorder=1, alpha=0.5, color='k',
                               linestyle='--', draw_labels=True)
             gl.xformatter = gridliner.LONGITUDE_FORMATTER
             gl.xlocator = mticker.FixedLocator([-90, 0, 90, 180, 270])
-            gl.xlabels_top = False
+            gl.xlabels_top = False            
             gl_label_style = {'color': 'gray', 'size': 8}
             gl.xlabel_style = gl_label_style
             gl.yformatter = gridliner.LATITUDE_FORMATTER
             gl.ylocator = mticker.FixedLocator([-90, -60, -30, 0, 30, 60, 90])
             gl.ylabels_right = False
-            gl.ylabel_style = gl_label_style
-            exp = kwargs['exp_name'] if "exp_name" in kwargs else ""
-            plt.title(data.obsvar+" "+title+ " (" + exp +")")
-            i = -24.0
-            for t in text:
-                plt.annotate(t, xycoords='axes points', xy=(0.0, i))
-                i -= 12.0
-            dstr = [d.strftime("%Y-%m-%d") for d in dates]
-            dstr = dstr[0] if dstr[0] == dstr[1] else dstr[0] + ' to '+dstr[1]
-            plt.annotate(dstr, ha='right', xycoords='axes points', xy=(420, -24.0))
-        return ax
+            gl.ylabel_style = gl_label_style            
+            # coastline, bkg color
+            ax.coastlines(color='k', alpha=0.5)
+            ax.background_patch.set_facecolor('lightgray')
+            pass
+    else:
+        # generic coordinates
+        proj = None
+        i_dim = 0
+        j_dim = 1
+        def plot_type_pre(ax):
+            pass        
 
-    def plot_common_post(type_):
-        bbox_inches='tight' if kwargs['thumbnail'] else None
-        if not kwargs['thumbnail']:
-            plt.colorbar(orientation='vertical', shrink=0.8, fraction=0.02)
-        plt.savefig("{}{}.{}.{}.png".format(
-            kwargs['prefix'], data.obsvar, data.name, type_),
-                    bbox_inches = bbox_inches)
-        plt.close()
+    print("Plot 2D ",xy_type, data)
 
-    # counts
-    # NOTE dont plot these if doing an exp comparision
-    if data.exps() == 1:
-        for p in ('count', 'count_qc'):
-            d = data.count(qc=p=='count_qc')
-            dMax = numpy.max(d)
-            dSum = numpy.sum(d)
-            if p == 'count':
-                dRange = numpy.percentile(d[d > 0], [99])[0]
-            text = ["min: {:0.0f}".format(dSum),
-                    "max: {:0.0f}".format(dMax),]
-            plot_common_pre(title=p, text=text)
-            plt.pcolormesh(meshLons, meshLats, d,
-                        transform=trans, cmap=cmap_seq,
-                        norm=colors.LogNorm(vmin=1.0, vmax=dRange))
-            plot_common_post(p)
-
-        # pct bad obs
-        count = data.count(qc=False)
-        count_qc = data.count(qc=True)
-        d = count - count_qc
-        d[count > 0] /= count[count > 0]
-        d = numpy.ma.masked_where(count == 0, d)
-        dMin = numpy.min(d[count > 0])
-        dMax = numpy.max(d)
-        dAvg = numpy.mean(d[count > 0])
-        text = ["min: {:0.2f} max: {:0.2f}".format(dMin, dMax),
-                "avg: {:0.2f}".format(dAvg)]
-        plot_common_pre(title=" count_pctbad", text=text)
-        plt.pcolormesh(meshLons, meshLats, d, transform=trans, cmap=cmap_seq)
-        plot_common_post('count_pctbad')
-
-    count_qc = data.count(qc=True)
-
-    # rmsd
-    for p in ('ombg', 'oman'):
-        d = data.rmsd(mode=p)
-        dMax = numpy.max(d)
-        dAvg = numpy.mean(d)
-        if p == 'ombg':
-            if data.exps() == 1:
-                dRange = numpy.percentile(d[count_qc > 0], [1, 99])
-                norm=colors.LogNorm(vmin=dRange[0], vmax=dRange[1])
-                cmap=cmap_seq
-            else:
-                dRange = numpy.max(numpy.abs(
-                    numpy.percentile(d[count_qc > 0], [1, 99])))
-                norm=colors.Normalize(vmin=-dRange, vmax=dRange)
-                cmap=cmap_div
-                    
-        text = ['max: {:0.2e}'.format(dMax),
-                'avg: {:0.2e}'.format(dAvg),]
-        plot_common_pre(title=p+" rmsd", text=text)
-        plt.pcolormesh(meshLons, meshLats, d, transform=trans, cmap=cmap, norm=norm)
-        plot_common_post(p+'_rmsd')
-
-    # bias
-    for p in ('ombg', 'oman'):
-        d = data.mean(mode=p)
-        dMax = max(numpy.max(d), abs(numpy.min(d)))
-        dAvg = numpy.mean(d[count_qc > 0])
-        if p == 'ombg':
-            dRange = numpy.max(numpy.abs(
-                numpy.percentile(d[count_qc > 0], [1, 99])))
-        text = ['max: {:0.2e}'.format(dMax),
-                'avg: {:0.2e}'.format(dAvg)]            
-        plot_common_pre(title=p+" bias", text=text)
-        plt.pcolormesh(meshLons, meshLats, d, transform=trans, cmap=cmap_div,
-                       vmin=-dRange, vmax=dRange)
-        plot_common_post(p+'_bias')
-
-
-# ------------------------------------------------------------------------------
-# ------------------------------------------------------------------------------
-def plot_2d(data, **kwargs):
-    print("Plot 2D ", data)
-
-    #TODO figure out the correct order for the axes
-
-    mesh_i, mesh_j = numpy.meshgrid(data.bin_edges[0], data.bin_edges[1])
+    # generate x/y coordinates
+    mesh_i, mesh_j = numpy.meshgrid(data.bin_edges[i_dim], data.bin_edges[j_dim])
     
-    def plot_common_pre(title=""):
+    #TODO, use the right dates
+    dates=[datetime.now(), datetime.now()]
+
+    def plot_common_pre(title="", text=[]):
         plt.figure(figsize=(8.0, 4.0))
-        ax = plt.axes()
+        ax = plt.axes(projection=proj)
         ax.set_facecolor('lightgray')
-        plt.title(data.obsvar+" "+title)
         #plt.axvline(x=0.0, color='k', alpha=0.5)
         ax.set_xlabel(data.bin_dims[0])
         ax.set_ylabel(data.bin_dims[1])
@@ -172,22 +87,38 @@ def plot_2d(data, **kwargs):
         #dstr = [d.strftime("%Y-%m-%d") for d in dates]
         #dstr = dstr[0] if dstr[0] == dstr[1] else dstr[0] + ' to ' + dstr[1]
         #plt.annotate(dstr, ha='right', xycoords='axes points', xy=(420, -24.0))
+        exp = kwargs['exp_name'] if "exp_name" in kwargs else ""
+        plt.title(data.obsvar+" "+title+ " (" + exp +")")
+        i = -24.0
+        for t in text:
+            plt.annotate(t, xycoords='axes points', xy=(0.0, i))
+            i -= 12.0
+        dstr = [d.strftime("%Y-%m-%d") for d in dates]
+        dstr = dstr[0] if dstr[0] == dstr[1] else dstr[0] + ' to '+dstr[1]
+        plt.annotate(dstr, ha='right', xycoords='axes points', xy=(420, -24.0))
+        plot_type_pre(ax)
         return ax
     
     def plot_common_post(type_):
+        bbox_inches='tight' if kwargs['thumbnail'] else None
         plt.colorbar(orientation='vertical', shrink=0.7, fraction=0.02)
         plt.savefig("{}{}.{}.{}.png".format(
-            kwargs['prefix'], data.obsvar, data.name, type_))
+            kwargs['prefix'], data.obsvar, data.name, type_),
+            bbox_inches = bbox_inches)
         plt.close()
 
     # counts
     for p in ('count', 'count_qc'):
         d = data.count(qc=p=='count_qc')
+        dMax = numpy.max(d)
+        dSum = numpy.sum(d)
+        text = ["min: {:0.0f}".format(dSum),
+                "max: {:0.0f}".format(dMax),]        
         if p == 'count':
             dRange = numpy.percentile(d[d>0], [99])[0]
-        plot_common_pre(title=p)
-        plt.pcolormesh(mesh_i, mesh_j, d,
-                       cmap=cmap_seq, norm=colors.LogNorm(vmin=1.0, vmax=dRange))
+        plot_common_pre(title=p, text=text)
+        plt.pcolormesh(mesh_i, mesh_j, d, **mesh_opt,
+            cmap=cmap_seq, norm=colors.LogNorm(vmin=1.0, vmax=dRange))
         plot_common_post(p)
 
     # pct bad
@@ -196,39 +127,52 @@ def plot_2d(data, **kwargs):
     d = count - count_qc
     d[count > 0] /= count[count > 0]
     d = numpy.ma.masked_where(count == 0, d)
-    # dMin = numpy.min(d[count > 0])
-    # dMax = numpy.max(d)
-    # dAvg = numpy.mean(d[count > 0])
-    plot_common_pre(title=" count_pctbad")
-    plt.pcolormesh(mesh_i, mesh_j, d, cmap=cmap_seq)
+    dMin = numpy.min(d[count > 0])
+    dMax = numpy.max(d)
+    dAvg = numpy.mean(d[count > 0])
+    text = ["min: {:0.2f} max: {:0.2f}".format(dMin, dMax),
+            "avg: {:0.2f}".format(dAvg)]
+    plot_common_pre(title=" count_pctbad", text=text)
+    plt.pcolormesh(mesh_i, mesh_j, d, cmap=cmap_seq, **mesh_opt)
     plot_common_post('count_pctbad')
     
     # rmsd
     for p in ('ombg', 'oman'):        
         d = data.rmsd(mode=p)
+        dMax = numpy.max(d)
+        dAvg = numpy.mean(d)   
+        text = ['max: {:0.2e}'.format(dMax),
+                'avg: {:0.2e}'.format(dAvg),]
+
         if p == 'ombg':
-            if data.exps() == 1:
-                dRange = numpy.percentile(d[count_qc > 0], [1, 99])
-                norm=colors.LogNorm(*dRange)
-                cmap=cmap_seq
-            else:
+            if kwargs['diff']:
                 dRange = numpy.max(numpy.abs(
                     numpy.percentile(d[count_qc > 0], [1, 99])))
                 norm=colors.Normalize(vmin=-dRange, vmax=dRange)
                 cmap=cmap_div
-        plot_common_pre(title=p+" rmsd")
-        plt.pcolormesh(mesh_i, mesh_j, d, cmap=cmap, norm=norm)
+            else:
+                dRange = numpy.percentile(d[count_qc > 0], [1, 99])
+                norm=colors.LogNorm(*dRange)
+                cmap=cmap_seq
+        plot_common_pre(title=p+" rmsd", text=text)
+        plt.pcolormesh(mesh_i, mesh_j, d, cmap=cmap, norm=norm, **mesh_opt)
         plot_common_post(p+'_rmsd')
         
     
     # bias
     for p in ('ombg', 'oman'):
         d = data.mean(mode=p)
+        dMax = max(numpy.max(d), abs(numpy.min(d)))
+        dAvg = numpy.mean(d[count_qc > 0])        
+        text = ['max: {:0.2e}'.format(dMax),
+                'avg: {:0.2e}'.format(dAvg)]            
+
         if p == 'ombg':
             dRange = numpy.max(numpy.abs(
                 numpy.percentile(d[count_qc > 0], [1,99])))
-        plot_common_pre(title=p+' bias')
-        plt.pcolormesh(mesh_i, mesh_j, d, cmap=cmap_div, vmin=-dRange, vmax=dRange)
+        plot_common_pre(title=p+' bias', text=text)
+        plt.pcolormesh(mesh_i, mesh_j, d, cmap=cmap_div, vmin=-dRange, vmax=dRange,
+            **mesh_opt)
         plot_common_post(p+'_bias')
 
 
@@ -531,13 +475,8 @@ def main():
         #      and set(('latitude', 'longitude')).issubset(s)):
         #     plot_3d_xy(exps_v[0])
         
-        # 2D lat/lon plot
-        if ( len(exps) == 1 
-               and set(('latitude', 'longitude'))) == s:
-            plot_2d_xy(exps_v[0], **vars(args), exp_name=data.exp())
-
-        # 2D plot that is NOT lat/lon
-        elif len(exps) == 1 and len(v.bin_dims) == 2:
+        # 2D plot
+        if len(exps) == 1 and len(v.bin_dims) == 2:
             plot_2d(exps_v[0], **vars(args), exp_name=data.exp())
 
         # # 2D cross section plots wrt depth ( or some other variable)  
