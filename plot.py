@@ -265,6 +265,8 @@ def plot_2d(data, **kwargs):
 # ------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------
 def plot_1d(exps, **kwargs):
+    # TODO merge logic with plot_1d_z
+
     print("Plot 1D", exps)
 
     # handle either a list or a single exp being passed in
@@ -273,6 +275,10 @@ def plot_1d(exps, **kwargs):
     else:
         data = exps
         exps = [data,]
+
+    # TODO, use smart selection of axis
+    x_dim = 0
+    y_dim = 1
 
     # TODO make sure meta data is same across exps
     bin_centers = (data.bin_edges[0][:-1] + data.bin_edges[0][1:]) / 2.0
@@ -283,7 +289,13 @@ def plot_1d(exps, **kwargs):
         ax = plt.axes()
         plt.title(data.obsvar+" "+title)
         ax.set_xlabel(data.bin_dims[0])
-    
+        # if x axis is lat or lon, and 0 deg is in the range,
+        # draw vertical line
+        if data.bin_dims[x_dim] in ('latitude','longitude') and \
+            ( numpy.min(bin_centers) < 0 < numpy.max(bin_centers) ):
+            plt.axvline(x=0.0, color='black', alpha=0.5)
+        plt.grid(True, alpha=0.5)
+
     def plot_common_post(type_):
         bbox_inches ='tight' if kwargs['thumbnail'] else None
         plt.savefig("{}{}.{}.{}.png".format(
@@ -309,7 +321,9 @@ def plot_1d(exps, **kwargs):
                 label = kwargs['label'][e[0]] if p == 'ombg' else None,
                 ls='--' if p == 'oman' else None)
     plt.legend()
-    plt.axvline(x=0.0, color='black', alpha=0.5)
+    if kwargs['diff']:
+        # only plot a dark horizontal line at 0.0 if doing a diff
+        plt.axhline(y=0.0, color='black', alpha=0.5)
     plot_common_post('rmsd')
 
     # bias
@@ -321,7 +335,7 @@ def plot_1d(exps, **kwargs):
                 label = kwargs['label'][e[0]] if p == 'ombg' else None,
                 ls='--' if p == 'oman' else None)
     plt.legend()
-    plt.axvline(x=0.0, color='black', alpha=0.5)
+    plt.axhline(y=0.0, color='black', alpha=0.5)
     plot_common_post('bias')
 
 
