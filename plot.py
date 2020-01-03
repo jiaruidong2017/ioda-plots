@@ -31,7 +31,12 @@ cmap_seq="inferno"
 # ------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------
 def plot_2d(data, **kwargs):
-    
+
+    #TODO, use the right dates
+    dates=[datetime.now(), datetime.now()]
+    title = kwargs['title']
+    title = data.obsvar if title is None else title   
+
     # figure out what type of plot
     mesh_opt = {}
     xy_type = ""
@@ -91,11 +96,9 @@ def plot_2d(data, **kwargs):
 
     # generate x/y coordinates
     mesh_i, mesh_j = numpy.meshgrid(data.bin_edges[x_dim], data.bin_edges[y_dim])
-    
-    #TODO, use the right dates
-    dates=[datetime.now(), datetime.now()]
 
-    def plot_common_pre(title="", text=[]):
+
+    def plot_common_pre(title_add="", text=[]):
         plt.figure(figsize=(8.0, 4.0))
         ax = plt.axes(projection=proj)
         ax.set_facecolor('lightgray')
@@ -108,7 +111,7 @@ def plot_2d(data, **kwargs):
         #dstr = dstr[0] if dstr[0] == dstr[1] else dstr[0] + ' to ' + dstr[1]
         #plt.annotate(dstr, ha='right', xycoords='axes points', xy=(420, -24.0))
         exp = kwargs['exp_name'] if "exp_name" in kwargs else ""
-        plt.title(data.obsvar+" "+title+ " (" + exp +")")
+        plt.title(title+" "+title_add+ " (" + exp +")")
         i = -24.0
         for t in text:
             plt.annotate(t, xycoords='axes points', xy=(0.0, i))
@@ -122,8 +125,8 @@ def plot_2d(data, **kwargs):
     def plot_common_post(type_):
         bbox_inches='tight' if kwargs['thumbnail'] else None
         plt.colorbar(orientation='vertical', shrink=0.7, fraction=0.02)
-        plt.savefig("{}{}.{}.{}.png".format(
-            kwargs['prefix'], data.obsvar, data.name, type_),
+        plt.savefig("{}{}.{}{}.{}.png".format(
+            kwargs['prefix'], title.lower().replace(' ','_'), data.name, "",type_),
             bbox_inches = bbox_inches)
         plt.close()
 
@@ -136,7 +139,7 @@ def plot_2d(data, **kwargs):
                 "max: {:0.0f}".format(dMax),]        
         if p == 'count':
             dRange = numpy.percentile(d[d>0], [99])[0]
-        plot_common_pre(title=p, text=text)
+        plot_common_pre(title_add=p, text=text)
         d = numpy.transpose(d) if transpose else d
         plt.pcolormesh(mesh_i, mesh_j, d, **mesh_opt,
             cmap=cmap_seq, norm=colors.LogNorm(vmin=1.0, vmax=dRange))
@@ -154,7 +157,7 @@ def plot_2d(data, **kwargs):
     text = ["min: {:0.2f} max: {:0.2f}".format(dMin, dMax),
             "avg: {:0.2f}".format(dAvg)]
     d = numpy.transpose(d) if transpose else d
-    plot_common_pre(title=" count_pctbad", text=text)
+    plot_common_pre(title_add=" count_pctbad", text=text)
     plt.pcolormesh(mesh_i, mesh_j, d, cmap=cmap_seq, **mesh_opt)
     plot_common_post('count_pctbad')
     
@@ -176,8 +179,8 @@ def plot_2d(data, **kwargs):
                 dRange = numpy.percentile(d[count_qc > 0], [1, 99])
                 norm=colors.LogNorm(*dRange)
                 cmap=cmap_seq
-        plot_common_pre(title=p+" rmsd", text=text)
         d = numpy.transpose(d) if transpose else d
+        plot_common_pre(title_add=p+" rmsd", text=text)
         plt.pcolormesh(mesh_i, mesh_j, d, cmap=cmap, norm=norm, **mesh_opt)
         plot_common_post(p+'_rmsd')
         
@@ -192,9 +195,9 @@ def plot_2d(data, **kwargs):
 
         if p == 'ombg':
             dRange = numpy.max(numpy.abs(
-                numpy.percentile(d[count_qc > 0], [1,99])))
-        plot_common_pre(title=p+' bias', text=text)
+                numpy.percentile(d[count_qc > 0], [1,99])))        
         d = numpy.transpose(d) if transpose else d
+        plot_common_pre(title_add=p+' bias', text=text)
         plt.pcolormesh(mesh_i, mesh_j, d, cmap=cmap_div, vmin=-dRange, vmax=dRange,
             **mesh_opt)
         plot_common_post(p+'_bias')
@@ -309,8 +312,10 @@ def plot_1d(exps, **kwargs):
     bin_widths = (data.bin_edges[0][1:] - data.bin_edges[0][:-1])
 
     exp = kwargs['exp_name'] if "exp_name" in kwargs else None
+    title = kwargs['title']
+    title = data.obsvar if title is None else title   
 
-    def plot_common_pre(title=""):
+    def plot_common_pre(title_add=""):
         plt.figure(figsize=(8.0, 4.0))
         ax = plt.axes()
 
@@ -319,7 +324,7 @@ def plot_1d(exps, **kwargs):
         else:
             exp_str= " (" + exp +")"
 
-        plt.title(data.obsvar+" "+title + exp_str)
+        plt.title(title+" "+title_add + exp_str)
         ax.set_xlabel(data.bin_dims[0])
         # if x axis is lat or lon, and 0 deg is in the range,
         # draw vertical line
@@ -330,14 +335,14 @@ def plot_1d(exps, **kwargs):
 
     def plot_common_post(type_):
         bbox_inches ='tight' if kwargs['thumbnail'] else None
-        plt.savefig("{}{}.{}.{}.png".format(
-            kwargs['prefix'], data.obsvar, data.name, type_),
+        plt.savefig("{}{}.{}{}.{}.png".format(
+            kwargs['prefix'], title.lower().replace(' ','_'), data.name, "",type_),
             bbox_inches = bbox_inches)
         plt.close()
 
     # # counts
     # bar_widths = bin_widths - numpy.min(bin_widths)*0.1
-    # plot_common_pre(title="counts")
+    # plot_common_pre(title_add="counts")
     # plt.bar(bin_centers, data.count(qc=False)/bar_widths, color='C0', alpha=0.4,
     #          width=bar_widths)
     # plt.bar(bin_centers, data.count(qc=True)/bar_widths, color='C0',
@@ -345,7 +350,7 @@ def plot_1d(exps, **kwargs):
     # plot_common_post('counts')
 
     # rmsd
-    plot_common_pre(title="rmsd")
+    plot_common_pre(title_add="rmsd")
     for e in enumerate(exps):
         for p in ('ombg', 'oman'):
             rmsd = e[1].rmsd(mode=p)
@@ -359,7 +364,7 @@ def plot_1d(exps, **kwargs):
     plot_common_post('rmsd')
 
     # bias
-    plot_common_pre(title="bias")
+    plot_common_pre(title_add="bias")
     for e in enumerate(exps):
         for p in ('ombg', 'oman'):
             bias = e[1].mean(mode=p)
@@ -448,21 +453,41 @@ def main():
     import argparse
     import os
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(add_help=False)
     
     parser_req = parser.add_argument_group("required arguments")
     parser_req.add_argument('-exp', required=True, action="append", nargs="+",
-        help="one or more files to load. This argument can be repeated to handle multiple experimetns (diff or multiple line plots)")
+        help="one or more files to load. This argument can be repeated to handle"+
+            " multiple experimetns (2D difference, or multiple line plots)")
 
-    parser_opt = parser
-    parser_opt.add_argument('--diff', default=False, action="store_true")
-    parser_opt.add_argument('--prefix', default="")    
+    parser_opt = parser.add_argument_group("optional arguments")
+    parser_opt.add_argument('--diff', default=False, action="store_true",
+        help = "The first '-exp' is subtracted from each subsequent '-exp', and then" +
+            " is removed from the list of exps to plot." +
+            " This option can only be used if more than 1 '-exp' is given. "+
+            " If more than 2 '-exp' are given, 2D plots will not be generated, only 1D line plots.")
+    parser_opt.add_argument("-h", "--help", action="help", help="show this help message and exit")            
+    parser_opt.add_argument('-label', type=str, nargs="+", required=False,
+        help = "Names for each experiment to use in the plot legends," +
+            " coresponding to the order given by the '-exp' arguments. The" +
+            " number of names passed in must equal the number of '-exp'" +
+            " arguments. If '-label' is not given, the labels default to 'exp<n>'")
+    parser_opt.add_argument('--prefix', default="",
+        help = "The directory/filename to prefex each generated output image file.")
     parser_opt.add_argument('--thumbnail', action="store_true", default=False,
-                        help='Create smaller images without labels and colorbars')
+        help='Create smaller images without labels and colorbars. '+
+            "(Currently not working right, don't use it!)")
     parser_opt.add_argument('--timeseries', default = False, action="store_true",
-                        help='')
-    parser_opt.add_argument('-label', nargs="+", required=False)
-    
+        help = "Normally, all files for a given '-exp' are merged into a single " +
+            "set of binned stats before plotting. If '--timeseries' is present " +
+            "the separarate files are not merged, but instead are used to add a " +
+            "'time' dimension to the plots. I.e 0-D stats become a 1-D line plot, "+
+            "1-D stats become a 2D Hovmoller, and 2D stats are not plotted, because "+
+            "how do you expect me to plot in 3D?")
+    parser_opt.add_argument('-title', type=str,
+        help = "by default the variable name will be used as the beginning of "+
+            "each plot title. This will override that.")
+
     args = parser.parse_args()
 
     # create output directories
