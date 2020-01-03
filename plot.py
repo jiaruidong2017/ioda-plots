@@ -291,9 +291,7 @@ def plot_2d(data, daterange, **kwargs):
 # ------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------
 def plot_1d(exps, daterange, **kwargs):
-    # TODO merge logic with plot_1d_z
-
-    print("Plot 1D", exps)
+    # TODO merge logic with plot_1d_z    
 
     # handle either a list or a single exp being passed in
     if type(exps) is list:
@@ -302,13 +300,15 @@ def plot_1d(exps, daterange, **kwargs):
         data = exps
         exps = [data,]
 
-    # TODO, use smart selection of axis
-    x_dim = 0
-    y_dim = 1
+    print("Plot 1D", exps[0])
 
     # TODO make sure meta data is same across exps
     bin_centers = (data.bin_edges[0][:-1] + data.bin_edges[0][1:]) / 2.0
     bin_widths = (data.bin_edges[0][1:] - data.bin_edges[0][:-1])
+
+    transpose = False
+    if 'depth' in data.bin_dims:
+        transpose = True
 
     exp = kwargs['exp_name'] if "exp_name" in kwargs else None
     title = kwargs['title']
@@ -326,13 +326,20 @@ def plot_1d(exps, daterange, **kwargs):
         dstr = dstr[0] if dstr[0] == dstr[1] else dstr[0] + ' to '+dstr[1]
         plt.annotate(dstr, ha='right', xycoords='axes points', xy=(480, -28.0))
         plt.title(title+" "+title_add + exp_str)
-        ax.set_xlabel(data.bin_dims[0])
+        
+        if transpose:
+            ax.set_ylabel(data.bin_dims[0])
+        else:
+            ax.set_xlabel(data.bin_dims[0])
+
         # if x axis is lat or lon, and 0 deg is in the range,
         # draw vertical line
-        if data.bin_dims[x_dim] in ('latitude','longitude') and \
+        if data.bin_dims[0] in ('latitude','longitude') and \
             ( numpy.min(bin_centers) < 0 < numpy.max(bin_centers) ):
             plt.axvline(x=0.0, color='black', alpha=0.5)
         plt.grid(True, alpha=0.5)
+        if 'depth' in data.bin_dims:
+            plt.gca().invert_yaxis()
 
     def plot_common_post(type_):
         bbox_inches ='tight' if kwargs['thumbnail'] else None
@@ -355,7 +362,9 @@ def plot_1d(exps, daterange, **kwargs):
     for e in enumerate(exps):
         for p in ('ombg', 'oman'):
             rmsd = e[1].rmsd(mode=p)
-            plt.plot(bin_centers, rmsd, color='C{}'.format(e[0]), alpha=1.0, lw=2.0,
+            d1 =  rmsd if transpose else bin_centers
+            d2 =  bin_centers if transpose else rmsd
+            plt.plot(d1, d2, color='C{}'.format(e[0]), alpha=1.0, lw=2.0,
                 label = kwargs['label'][e[0]] if p == 'ombg' else None,
                 ls='--' if p == 'oman' else None)
     plt.legend()
@@ -369,83 +378,17 @@ def plot_1d(exps, daterange, **kwargs):
     for e in enumerate(exps):
         for p in ('ombg', 'oman'):
             bias = e[1].mean(mode=p)
-            plt.plot(bin_centers, bias, color='C{}'.format(e[0]), alpha=1.0, lw=2.0,
+            d1 =  bias if transpose else bin_centers
+            d2 =  bin_centers if transpose else bias
+            plt.plot(d1, d2, color='C{}'.format(e[0]), alpha=1.0, lw=2.0,
                 label = kwargs['label'][e[0]] if p == 'ombg' else None,
                 ls='--' if p == 'oman' else None)
     plt.legend()
-    plt.axhline(y=0.0, color='black', alpha=0.5)
+    if transpose:
+        plt.axvline(x=0.0, color='black', alpha=0.5)
+    else:
+        plt.axhline(y=0.0, color='black', alpha=0.5)
     plot_common_post('bias')
-
-
-# # ------------------------------------------------------------------------------
-# # ------------------------------------------------------------------------------
-# def plot_1d_z(data, daterange, **kwargs):
-#     # TODO handle counts correctly for timeseries data
-#     if kwargs['timeseries']:
-#         data_timeseries = data
-#         data = data_timeseries[-1]
-#     else:
-#         data_timeseries = [data,]
-
-#     print("Plot 1D (timeseries={})".format(kwargs['timeseries']), data)
-            
-#     bin_centers = (data.bin_edges[0][:-1] + data.bin_edges[0][1:]) / 2.0
-#     bin_widths = (data.bin_edges[0][1:] - data.bin_edges[0][:-1])
-#     # count_qc = data.count(qc=True)
-
-#     def plot_common_pre(title=""):
-#         plt.figure(figsize=(4.0, 8.0))
-#         ax = plt.axes()
-#         if data.bin_dims[0] == 'depth':
-#             plt.gca().invert_yaxis()
-#         if not kwargs['thumbnail']:
-#             plt.title(data.obsvar+" "+title)
-#             dstr = [d.strftime("%Y-%m-%d") for d in daterange]
-#             dstr = dstr[0] if dstr[0] == dstr[1] else dstr[0] + " to " + dstr[1]        
-#             plt.annotate(dstr, xycoords="axes points", xy=(0, -30.0))
-#             ax.set_ylabel(data.bin_dims[0])
-#         return ax
-
-#     def plot_common_post(type_):
-#         bbox_inches ='tight' if kwargs['thumbnail'] else None
-#         plt.savefig("{}{}_{}_{}.png".format(
-#             kwargs['prefix'], data.obsvar, data.name, type_),
-#             bbox_inches = bbox_inches)
-#         plt.close()
-
-#     # counts
-#     bar_widths = bin_widths - numpy.min(bin_widths)*0.1
-#     plot_common_pre(title="counts")
-#     plt.barh(bin_centers, data.count(qc=False)/bar_widths, color='C0', alpha=0.4,
-#              height=bar_widths)
-#     plt.barh(bin_centers, data.count(qc=True)/bar_widths, color='C0',
-#              height=bar_widths)
-#     plot_common_post('counts')
-
-#     # rmsd
-#     plot_common_pre(title="rmsd")
-#     for p in ('ombg', 'oman'):
-#         for data in data_timeseries:
-#             rmsd = data.rmsd(mode=p)
-#             plt.plot(rmsd, bin_centers, color='C0', alpha=0.2,
-#                      ls='--' if p == 'oman' else None)
-#         plt.plot(rmsd, bin_centers, color='C0', alpha=1.0, lw=2.0,
-#              ls='--' if p == 'oman' else None)
-#     plt.axvline(x=0.0, color='black', alpha=0.5)
-#     plot_common_post('rmsd')
-
-#     # bias
-#     plot_common_pre(title="bias")
-#     for p in ('ombg', 'oman'):
-#         for data in data_timeseries:
-#             bias = data.mean(mode=p)
-#             plt.plot(bias, bin_centers, color='C0', alpha=0.2,
-#                      ls='--' if p == 'oman' else None)
-#         plt.plot(rmsd, bin_centers, color='C0', alpha=1.0, lw=2.0,
-#              ls='--' if p == 'oman' else None)
-#     plt.axvline(x=0.0, color='black', alpha=0.5)
-#     plot_common_post('bias')
-            
 
 
 # ------------------------------------------------------------------------------
