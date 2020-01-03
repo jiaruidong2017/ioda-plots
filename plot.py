@@ -35,13 +35,15 @@ def plot_2d(data, **kwargs):
     # figure out what type of plot
     mesh_opt = {}
     xy_type = ""
+    transpose = False
+
     if set(('latitude','longitude')) == set(data.bin_dims):
         # lat/lon
         xy_type = "latlon"
         proj = ccrs.PlateCarree(central_longitude=-155)
         mesh_opt['transform'] = ccrs.PlateCarree()
-        i_dim = data.bin_dims.index('longitude')
-        j_dim = data.bin_dims.index('latitude')
+        x_dim = data.bin_dims.index('longitude')
+        y_dim = data.bin_dims.index('latitude')
         def plot_type_pre(ax):
             # lat/lon axes
             gl = ax.gridlines(zorder=1, alpha=0.5, color='k',
@@ -58,19 +60,37 @@ def plot_2d(data, **kwargs):
             # coastline, bkg color
             ax.coastlines(color='k', alpha=0.5)
             ax.background_patch.set_facecolor('lightgray')
+
+    elif 'time' in data.bin_dims:
+        # Hovmoller
+        xy_type = "Hovmoller"
+        proj = None
+        time_dim = data.bin_dims.index('time')
+        other_dim = 1 - time_dim
+        if data.bin_dims[other_dim] in ('longitude'):
+            # time should be on the y axis
+            x_dim = other_dim
+            y_dim = time_dim
+        else:
+            # time should be on the x axis
+            transpose = True
+            x_dim = time_dim
+            y_dim = other_dim
+
+        def plot_type_pre(ax):
             pass
     else:
         # generic coordinates
         proj = None
-        i_dim = 0
-        j_dim = 1
+        x_dim = 0
+        y_dim = 1
         def plot_type_pre(ax):
             pass        
 
     print("Plot 2D ",xy_type, data)
 
     # generate x/y coordinates
-    mesh_i, mesh_j = numpy.meshgrid(data.bin_edges[i_dim], data.bin_edges[j_dim])
+    mesh_i, mesh_j = numpy.meshgrid(data.bin_edges[x_dim], data.bin_edges[y_dim])
     
     #TODO, use the right dates
     dates=[datetime.now(), datetime.now()]
@@ -80,8 +100,8 @@ def plot_2d(data, **kwargs):
         ax = plt.axes(projection=proj)
         ax.set_facecolor('lightgray')
         #plt.axvline(x=0.0, color='k', alpha=0.5)
-        ax.set_xlabel(data.bin_dims[0])
-        ax.set_ylabel(data.bin_dims[1])
+        ax.set_xlabel(data.bin_dims[x_dim])
+        ax.set_ylabel(data.bin_dims[y_dim])
         #if data.bin_dims[idx_z] in ('depth',):
          #   plt.gca().invert_yaxis()
         #dstr = [d.strftime("%Y-%m-%d") for d in dates]
@@ -117,6 +137,7 @@ def plot_2d(data, **kwargs):
         if p == 'count':
             dRange = numpy.percentile(d[d>0], [99])[0]
         plot_common_pre(title=p, text=text)
+        d = numpy.transpose(d) if transpose else d
         plt.pcolormesh(mesh_i, mesh_j, d, **mesh_opt,
             cmap=cmap_seq, norm=colors.LogNorm(vmin=1.0, vmax=dRange))
         plot_common_post(p)
@@ -132,6 +153,7 @@ def plot_2d(data, **kwargs):
     dAvg = numpy.mean(d[count > 0])
     text = ["min: {:0.2f} max: {:0.2f}".format(dMin, dMax),
             "avg: {:0.2f}".format(dAvg)]
+    d = numpy.transpose(d) if transpose else d
     plot_common_pre(title=" count_pctbad", text=text)
     plt.pcolormesh(mesh_i, mesh_j, d, cmap=cmap_seq, **mesh_opt)
     plot_common_post('count_pctbad')
@@ -155,6 +177,7 @@ def plot_2d(data, **kwargs):
                 norm=colors.LogNorm(*dRange)
                 cmap=cmap_seq
         plot_common_pre(title=p+" rmsd", text=text)
+        d = numpy.transpose(d) if transpose else d
         plt.pcolormesh(mesh_i, mesh_j, d, cmap=cmap, norm=norm, **mesh_opt)
         plot_common_post(p+'_rmsd')
         
@@ -171,6 +194,7 @@ def plot_2d(data, **kwargs):
             dRange = numpy.max(numpy.abs(
                 numpy.percentile(d[count_qc > 0], [1,99])))
         plot_common_pre(title=p+' bias', text=text)
+        d = numpy.transpose(d) if transpose else d
         plt.pcolormesh(mesh_i, mesh_j, d, cmap=cmap_div, vmin=-dRange, vmax=dRange,
             **mesh_opt)
         plot_common_post(p+'_bias')
