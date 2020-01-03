@@ -103,8 +103,9 @@ def plot_2d(data, daterange, **kwargs):
         #plt.axvline(x=0.0, color='k', alpha=0.5)
         ax.set_xlabel(data.bin_dims[x_dim])
         ax.set_ylabel(data.bin_dims[y_dim])
-        #if data.bin_dims[idx_z] in ('depth',):
-         #   plt.gca().invert_yaxis()
+        # invert y axis if it is depth
+        if data.bin_dims[y_dim] in ('depth',):
+            plt.gca().invert_yaxis()
         #dstr = [d.strftime("%Y-%m-%d") for d in dates]
         #dstr = dstr[0] if dstr[0] == dstr[1] else dstr[0] + ' to ' + dstr[1]
         #plt.annotate(dstr, ha='right', xycoords='axes points', xy=(420, -24.0))
