@@ -519,6 +519,8 @@ def main():
     if args.diff and len(exps) == 1:
         raise Exception("cannot use '--diff' with only one '-exp' given")
     elif args.diff:
+        exp0_name = exps[0].exp()
+        args.label = args.label[1:]
         for i in enumerate(exps[1:]):
             exps[i[0]+1] -= exps[0]
         exps = exps[1:]
@@ -556,8 +558,8 @@ def main():
 
         # probably a 1D line plot over some other dimension
         elif len(v.bin_dims) == 1:
-            exp_name = None if len(exps) == 1 else \
-                os.path.commonprefix([ e.exp() for e in exps ])
+            exp_name = None if not args.diff else \
+                "<exp> - " + exp0_name
             plot_1d(exps_v, **vars(args), exp_name=exp_name, daterange=daterange)
         
         else:
