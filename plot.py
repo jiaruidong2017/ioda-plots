@@ -30,10 +30,8 @@ cmap_seq="inferno"
 
 # ------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------
-def plot_2d(data, **kwargs):
+def plot_2d(data, daterange, **kwargs):
 
-    #TODO, use the right dates
-    dates=[datetime.now(), datetime.now()]
     title = kwargs['title']
     title = data.obsvar if title is None else title   
 
@@ -116,7 +114,7 @@ def plot_2d(data, **kwargs):
         for t in text:
             plt.annotate(t, xycoords='axes points', xy=(0.0, i))
             i -= 12.0
-        dstr = [d.strftime("%Y-%m-%d") for d in dates]
+        dstr = [d.strftime("%Y-%m-%d") for d in daterange]
         dstr = dstr[0] if dstr[0] == dstr[1] else dstr[0] + ' to '+dstr[1]
         plt.annotate(dstr, ha='right', xycoords='axes points', xy=(420, -24.0))
         plot_type_pre(ax)
@@ -291,7 +289,7 @@ def plot_2d(data, **kwargs):
 
 # ------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------
-def plot_1d(exps, **kwargs):
+def plot_1d(exps, daterange, **kwargs):
     # TODO merge logic with plot_1d_z
 
     print("Plot 1D", exps)
@@ -323,7 +321,9 @@ def plot_1d(exps, **kwargs):
             exp_str = ""
         else:
             exp_str= " (" + exp +")"
-
+        dstr = [d.strftime("%Y-%m-%d") for d in daterange]
+        dstr = dstr[0] if dstr[0] == dstr[1] else dstr[0] + ' to '+dstr[1]
+        plt.annotate(dstr, ha='right', xycoords='axes points', xy=(480, -28.0))
         plt.title(title+" "+title_add + exp_str)
         ax.set_xlabel(data.bin_dims[0])
         # if x axis is lat or lon, and 0 deg is in the range,
@@ -535,6 +535,7 @@ def main():
 
         # get all data frames for the experiments
         exps_v = [ e.binned_stats[k] for e in exps ]
+        daterange = exps[0].daterange
 
 
         # The following can only be done for a single experiment
@@ -547,7 +548,7 @@ def main():
         
         # 2D plot
         if len(exps) == 1 and len(v.bin_dims) == 2:
-            plot_2d(exps_v[0], **vars(args), exp_name=exps[0].exp())
+            plot_2d(exps_v[0], **vars(args), exp_name=exps[0].exp(), daterange=daterange)
 
         
         # The following can only be done for any number of experiments
@@ -557,7 +558,7 @@ def main():
         elif len(v.bin_dims) == 1:
             exp_name = None if len(exps) == 1 else \
                 os.path.commonprefix([ e.exp() for e in exps ])
-            plot_1d(exps_v, **vars(args), exp_name=exp_name)
+            plot_1d(exps_v, **vars(args), exp_name=exp_name, daterange=daterange)
         
         else:
             # TODO 0-D data, can't think of anything to do with this

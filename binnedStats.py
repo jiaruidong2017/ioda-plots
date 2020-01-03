@@ -44,9 +44,9 @@ class BinnedStatsCollectionTimeseries:
         self.bin_config = stats[0].bin_config
         self.binned_stats = {}
         self._exp = stats[0].exp()
+        
+        self.daterange = (min([s.daterange[0] for s in stats]), max([s.daterange[0] for s in stats]))
 
-        # WRONG        
-        self.daterange = stats[0].daterange
         for k in stats[0].binned_stats:
             self.binned_stats[k] = BinnedStatsTimeseries( [stats[i].binned_stats[k] for i in range(len(stats))])
 
