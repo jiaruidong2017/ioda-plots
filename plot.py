@@ -308,10 +308,18 @@ def plot_1d(exps, **kwargs):
     bin_centers = (data.bin_edges[0][:-1] + data.bin_edges[0][1:]) / 2.0
     bin_widths = (data.bin_edges[0][1:] - data.bin_edges[0][:-1])
 
+    exp = kwargs['exp_name'] if "exp_name" in kwargs else None
+
     def plot_common_pre(title=""):
         plt.figure(figsize=(8.0, 4.0))
         ax = plt.axes()
-        plt.title(data.obsvar+" "+title)
+
+        if exp is None:
+            exp_str = ""
+        else:
+            exp_str= " (" + exp +")"
+
+        plt.title(data.obsvar+" "+title + exp_str)
         ax.set_xlabel(data.bin_dims[0])
         # if x axis is lat or lon, and 0 deg is in the range,
         # draw vertical line
@@ -474,7 +482,6 @@ def main():
     for files in enumerate(args.exp):
         data = []
         for f in sorted(files[1]):
-            print('Loading: ', f)
             bs = BinnedStatsCollection.load(filename=f, exp=args.label[files[0]])
             data.append(bs)
         if args.timeseries:
@@ -485,15 +492,15 @@ def main():
 
     # calculate the difference between the first experiment, if doing a comparison
     if args.diff and len(exps) == 1:
-        raise Exception("cannot use '--compare' with only one '-exp' given")
+        raise Exception("cannot use '--diff' with only one '-exp' given")
     elif args.diff:
         for i in enumerate(exps[1:]):
             exps[i[0]+1] -= exps[0]
         exps = exps[1:]
+        data = exps[0]
 
-
-    print("Generating plots for: ", data)
     print("")
+    print("Generating plots for: ", data)    
 
     # TODO check to make sure timeseries data is same format
     for k, v in data.binned_stats.items():
@@ -515,29 +522,20 @@ def main():
         
         # 2D plot
         if len(exps) == 1 and len(v.bin_dims) == 2:
-            plot_2d(exps_v[0], **vars(args), exp_name=data.exp())
+            plot_2d(exps_v[0], **vars(args), exp_name=exps[0].exp())
 
-        # # 2D cross section plots wrt depth ( or some other variable)  
-        # # TODO check this          
-        # elif len(v.bin_dims) == 2 and \
-        #         len(set(('latitude', 'longitude')).intersection(s)) == 1:            
-        #     plot_2d_z(v, **vars(args))
-        
-        # # 1D line plots with height
-        # elif len(v.bin_dims) == 1 and  v.bin_dims[0] in zdims:
-        #     if args.timeseries:
-        #         v = [d.binned_stats[k] for d in data]            
-        #     plot_1d_z(v, data.daterange, **vars(args))
         
         # The following can only be done for any number of experiments
         #----------------------------------------------------------------------
 
         # probably a 1D line plot over some other dimension
         elif len(v.bin_dims) == 1:
-            plot_1d(exps_v, **vars(args))
+            exp_name = None if len(exps) == 1 else \
+                os.path.commonprefix([ e.exp() for e in exps ])
+            plot_1d(exps_v, **vars(args), exp_name=exp_name)
         
         else:
-            # TODO handle 0-D data with a timeseries            
+            # TODO 0-D data, can't think of anything to do with this
             print("Skipping ", v)
 
 if __name__ == "__main__":

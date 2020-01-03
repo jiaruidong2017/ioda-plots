@@ -29,7 +29,7 @@ class BinnedStatsCollectionDiff:
             self.binned_stats[k] = collection1.binned_stats[k] - collection2.binned_stats[k]
 
     def __str__(self):
-        return ('<BinnedStatsCollectionDiff exp="({})" variable="{}" bins="{}" dates="{} to {}">'.format(
+        return ('<BinnedStatsCollectionDiff exp="{}" variable="{}" bins="{}" dates="{} to {}">'.format(
             self.exp(), self.obsvar, len(self.binned_stats),
             self.daterange[0].strftime("%Y%m%dT%X"), self.daterange[1].strftime("%Y%m%dT%X")))
 
@@ -43,6 +43,7 @@ class BinnedStatsCollectionTimeseries:
         self.obsvar = stats[0].obsvar
         self.bin_config = stats[0].bin_config
         self.binned_stats = {}
+        self._exp = stats[0].exp()
 
         # WRONG        
         self.daterange = stats[0].daterange
@@ -50,12 +51,12 @@ class BinnedStatsCollectionTimeseries:
             self.binned_stats[k] = BinnedStatsTimeseries( [stats[i].binned_stats[k] for i in range(len(stats))])
 
     def __str__(self):
-        return ('<BinnedStatsCollectionTimeseries exp="({})" variable="{}" bins="{}" dates="{} to {}">'.format(
+        return ('<BinnedStatsCollectionTimeseries exp="{}" variable="{}" bins="{}" dates="{} to {}">'.format(
             self.exp(), self.obsvar, len(self.binned_stats),
             self.daterange[0].strftime("%Y%m%dT%X"), self.daterange[1].strftime("%Y%m%dT%X")))
 
     def exp(self):
-        return "TBI"
+        return self._exp
     
     def __sub__(self, other):
         return BinnedStatsCollectionDiff(self, other)
