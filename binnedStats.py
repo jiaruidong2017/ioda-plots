@@ -95,7 +95,6 @@ class BinnedStatsCollection:
 
     @staticmethod
     def create(ioda_file, yaml_file):
-        print('Reading: ', ioda_file)
         cls = BinnedStatsCollection()
 
         # read in the ioda data
@@ -250,13 +249,13 @@ class BinnedStats:
         dim_val = []
         for d in self.bin_dims:
             assert (d+'@MetaData') in data.variables.keys()
-            dv = data[d+'@MetaData']
+            dv = numpy.array(data[d+'@MetaData'])
             if d == 'longitude':
                 dv[dv < 0] += 360.0
             dim_val.append(dv)
 
         # calculate qc masks
-        mask_qc = data[self.obsvar+'@EffectiveQC0'] == 0
+        mask_qc = numpy.array(data[self.obsvar+'@EffectiveQC0'] == 0)
         dim_val_qc = []
         for d in dim_val:
             dim_val_qc.append(d[mask_qc])
@@ -277,7 +276,7 @@ class BinnedStats:
         
         # oman, ombg
         for v in ('oman', 'ombg'):
-            val = data[self.obsvar+'@'+v][mask_qc]
+            val = numpy.array(data[self.obsvar+'@'+v][mask_qc])
             if len(self.bin_dims) > 0:
                 H, _ = numpy.histogramdd(dim_val_qc, self.bin_edges, weights=val)
             else:
