@@ -8,6 +8,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
+import matplotlib.dates as mdates
 
 import cartopy.crs as ccrs
 import matplotlib.ticker as mticker
@@ -147,7 +148,7 @@ def plot_2d(data, daterange, **kwargs):
     # pct bad
     count = data.count(qc=False)
     count_qc = data.count(qc=True)
-    d = count - count_qc
+    d = (count - count_qc)*100
     d[count > 0] /= count[count > 0]
     d = numpy.ma.masked_where(count == 0, d)
     dMin = numpy.min(d[count > 0])
@@ -303,8 +304,12 @@ def plot_1d(exps, daterange, **kwargs):
     print("Plot 1D", exps[0])
 
     # TODO make sure meta data is same across exps
-    bin_centers = (data.bin_edges[0][:-1] + data.bin_edges[0][1:]) / 2.0
-    bin_widths = (data.bin_edges[0][1:] - data.bin_edges[0][:-1])
+    # TODO, these are wrong, did this for quick fix to dates
+    # put it back at some point
+    bin_centers = [e.bin_edges[0][:-1] for e in exps]
+    
+    #bin_centers = (data.bin_edges[0][:-1] + data.bin_edges[0][1:]) / 2.0
+    #bin_widths = (data.bin_edges[0][1:] - data.bin_edges[0][:-1])
 
     transpose = False
     if 'depth' in data.bin_dims:
@@ -335,11 +340,16 @@ def plot_1d(exps, daterange, **kwargs):
         # if x axis is lat or lon, and 0 deg is in the range,
         # draw vertical line
         if data.bin_dims[0] in ('latitude','longitude') and \
-            ( numpy.min(bin_centers) < 0 < numpy.max(bin_centers) ):
+            ( numpy.min(bin_centers[0]) < 0 < numpy.max(bin_centers[0]) ):
             plt.axvline(x=0.0, color='black', alpha=0.5)
         plt.grid(True, alpha=0.5)
         if 'depth' in data.bin_dims:
             plt.gca().invert_yaxis()
+
+        # fix dates 
+        if "time" in exps[0].bin_dims:
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%b-%d'))
+            
 
     def plot_common_post(type_):
         bbox_inches ='tight' if kwargs['thumbnail'] else None
@@ -362,9 +372,10 @@ def plot_1d(exps, daterange, **kwargs):
     for e in enumerate(exps):
         for p in ('ombg', 'oman'):
             rmsd = e[1].rmsd(mode=p)
-            d1 =  rmsd if transpose else bin_centers
-            d2 =  bin_centers if transpose else rmsd
+            d1 =  rmsd if transpose else bin_centers[e[0]]
+            d2 =  bin_centers[e[0]] if transpose else rmsd
             plt.plot(d1, d2, color='C{}'.format(e[0]), alpha=1.0, lw=2.0,
+                marker='.', markevery=[0,-1], ms=15,
                 label = kwargs['label'][e[0]] if p == 'ombg' else None,
                 ls='--' if p == 'oman' else None)
     plt.legend()
@@ -378,9 +389,10 @@ def plot_1d(exps, daterange, **kwargs):
     for e in enumerate(exps):
         for p in ('ombg', 'oman'):
             bias = e[1].mean(mode=p)
-            d1 =  bias if transpose else bin_centers
-            d2 =  bin_centers if transpose else bias
+            d1 =  bias if transpose else bin_centers[e[0]]
+            d2 =  bin_centers[e[0]] if transpose else bias
             plt.plot(d1, d2, color='C{}'.format(e[0]), alpha=1.0, lw=2.0,
+                marker='.', markevery=[0,-1], ms=15,
                 label = kwargs['label'][e[0]] if p == 'ombg' else None,
                 ls='--' if p == 'oman' else None)
     plt.legend()
@@ -400,35 +412,35 @@ def main():
     parser = argparse.ArgumentParser(add_help=False)
     
     parser_req = parser.add_argument_group("required arguments")
-    parser_req.add_argument('-exp', required=True, action="append", nargs="+",
+    parser_req.add_argument('-e','--exp', required=True, action="append", nargs="+",
         help="one or more files to load. This argument can be repeated to handle"+
             " multiple experimetns (2D difference, or multiple line plots)")
 
     parser_opt = parser.add_argument_group("optional arguments")
-    parser_opt.add_argument('--diff', default=False, action="store_true",
-        help = "The first '-exp' is subtracted from each subsequent '-exp', and then" +
+    parser_opt.add_argument('-d','--diff', default=False, action="store_true",
+        help = "The first '--exp' is subtracted from each subsequent '--exp', and then" +
             " is removed from the list of exps to plot." +
-            " This option can only be used if more than 1 '-exp' is given. "+
-            " If more than 2 '-exp' are given, 2D plots will not be generated, only 1D line plots.")
+            " This option can only be used if more than 1 '--exp' is given. "+
+            " If more than 2 '--exp' are given, 2D plots will not be generated, only 1D line plots.")
     parser_opt.add_argument("-h", "--help", action="help", help="show this help message and exit")            
-    parser_opt.add_argument('-label', type=str, nargs="+", required=False,
+    parser_opt.add_argument('--label', type=str, nargs="+", required=False,
         help = "Names for each experiment to use in the plot legends," +
             " coresponding to the order given by the '-exp' arguments. The" +
-            " number of names passed in must equal the number of '-exp'" +
+            " number of names passed in must equal the number of '--exp'" +
             " arguments. If '-label' is not given, the labels default to 'exp<n>'")
     parser_opt.add_argument('--prefix', default="",
         help = "The directory/filename to prefex each generated output image file.")
     parser_opt.add_argument('--thumbnail', action="store_true", default=False,
         help='Create smaller images without labels and colorbars. '+
             "(Currently not working right, don't use it!)")
-    parser_opt.add_argument('--timeseries', default = False, action="store_true",
-        help = "Normally, all files for a given '-exp' are merged into a single " +
+    parser_opt.add_argument('-t','--timeseries', default = False, action="store_true",
+        help = "Normally, all files for a given '--exp' are merged into a single " +
             "set of binned stats before plotting. If '--timeseries' is present " +
             "the separarate files are not merged, but instead are used to add a " +
             "'time' dimension to the plots. I.e 0-D stats become a 1-D line plot, "+
             "1-D stats become a 2D Hovmoller, and 2D stats are not plotted, because "+
             "how do you expect me to plot in 3D?")
-    parser_opt.add_argument('-title', type=str,
+    parser_opt.add_argument('--title', type=str,
         help = "by default the variable name will be used as the beginning of "+
             "each plot title. This will override that.")
 
@@ -436,7 +448,7 @@ def main():
 
     # create output directories
     d = os.path.dirname(args.prefix)
-    if d is not "" and not os.path.exists(d):
+    if d != "" and not os.path.exists(d):
         os.makedirs(d)
 
     # determine the name of the experiments, if not already given

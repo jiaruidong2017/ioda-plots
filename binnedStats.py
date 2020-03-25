@@ -39,16 +39,21 @@ class BinnedStatsCollectionDiff:
 
 class BinnedStatsCollectionTimeseries:
     def __init__(self, stats):
+
         # TODO ensure the two collections are congruent
         self.obsvar = stats[0].obsvar
         self.bin_config = stats[0].bin_config
         self.binned_stats = {}
         self._exp = stats[0].exp()
         
-        self.daterange = (min([s.daterange[0] for s in stats]), max([s.daterange[0] for s in stats]))
+        self.daterange = (min([s.daterange[0] for s in stats]), max([s.daterange[1] for s in stats]))
+
+        # TODO, use an average of the [0],[1]
+        d = [s.daterange[0] for s in stats]
+        d.append(stats[-1].daterange[1])
 
         for k in stats[0].binned_stats:
-            self.binned_stats[k] = BinnedStatsTimeseries( [stats[i].binned_stats[k] for i in range(len(stats))])
+            self.binned_stats[k] = BinnedStatsTimeseries([stats[i].binned_stats[k] for i in range(len(stats))], d)
 
     def __str__(self):
         return ('<BinnedStatsCollectionTimeseries exp="{}" variable="{}" bins="{}" dates="{} to {}">'.format(
@@ -62,7 +67,6 @@ class BinnedStatsCollectionTimeseries:
         return BinnedStatsCollectionDiff(self, other)
 
 
-# TODO make histogram calls go faster
 # TODO handle region subselection
 # TODO handle binning extents 
 class BinnedStatsCollection:
@@ -95,6 +99,7 @@ class BinnedStatsCollection:
 
     @staticmethod
     def create(ioda_file, yaml_file):
+        print('Reading: ', ioda_file)
         cls = BinnedStatsCollection()
 
         # read in the ioda data
@@ -130,7 +135,7 @@ class BinnedStatsCollection:
         # make sure each input field has same properties
         for s in stats:
             assert s.obsvar == cls.obsvar
-            assert s.bin_config == cls.bin_config
+            #assert s.bin_config == cls.bin_config
         # TODO check to make sure the BinnedStats are equivalent in each input
         cls.daterange[0] = numpy.min([s.daterange[0] for s in stats])
         cls.daterange[1] = numpy.max([s.daterange[1] for s in stats])
@@ -151,7 +156,7 @@ class BinnedStatsCollection:
 
 
 class BinnedStatsTimeseries:
-    def __init__(self, series):
+    def __init__(self, series, dates):
         self.name = series[0].name
         self.obsvar = series[0].obsvar
         self.bin_dims = series[0].bin_dims +('time',)
@@ -159,7 +164,7 @@ class BinnedStatsTimeseries:
 
         # TODO use the correct datetimes
         self.bin_edges = series[0].bin_edges
-        self.bin_edges += ( numpy.array(range(len(series)+1)), )
+        self.bin_edges += (dates,)
 
     def __str__(self):
         return ('<BinnedStatsTimeseries name="{}" variable="{}" dims="{}">'.format(
@@ -217,11 +222,16 @@ class BinnedStats:
     ''' stats for a single timeslice within arbitrary dimensions'''
 
     def __init__(self, data, binning_spec):
-        # TODO implement region bounding
-
-        self.obsvar = None        
+        self.obsvar = None
+        
+        # dimensions that are binned
         self.bin_dims = None
         self.bin_edges = None
+        
+        # dimensions used only for cropping
+        self.bound_dims = ()
+        self.bound_edges = ()
+
         self.name = binning_spec['name']        
         self._data = {}
 
@@ -238,24 +248,47 @@ class BinnedStats:
 
         # setup the bins for each dimension
         if 'dims' in binning_spec:
-            self.bin_dims, self.bin_edges = gen_bins(binning_spec['dims'])
+            bin_dims, bin_edges = gen_bins(binning_spec['dims'])
+            self.bin_dims = ()
+            self.bin_edges = ()
+            # separate dims used only for regional cropping
+            for d, e in zip(bin_dims, bin_edges):
+                if len(e) == 2:
+                    self.bound_dims += (d,)
+                    self.bound_edges += (e,)
+                else:
+                    self.bin_dims += (d,)
+                    self.bin_edges += (e,)
         else:
             self.bin_dims = ()
             self.bin_edges = ()
 
-        assert self.bin_dims is not None
+        # calculate bounding mask and apply to above
+        mask=None
+        for d, e in zip(self.bound_dims, self.bound_edges):
+            assert (d+'@MetaData') in data.variables.keys()
+            dv = numpy.array(data[d+'@MetaData'])
+            # TODO handle lon specially
+            mask2 = numpy.logical_and( dv > e[0], dv < e[1] )
+            if mask is None:
+                mask = mask2
+            else:
+                mask = numpy.logical_and(mask, mask2)
 
         # get the coordinate values for each dimension
+        # note: conversion to pure numpy array done for speed later
         dim_val = []
         for d in self.bin_dims:
             assert (d+'@MetaData') in data.variables.keys()
             dv = numpy.array(data[d+'@MetaData'])
             if d == 'longitude':
                 dv[dv < 0] += 360.0
+            dv = dv[mask] if mask is not None else dv
             dim_val.append(dv)
 
         # calculate qc masks
         mask_qc = numpy.array(data[self.obsvar+'@EffectiveQC0'] == 0)
+        mask_qc = mask_qc[mask] if mask is not None else mask_qc
         dim_val_qc = []
         for d in dim_val:
             dim_val_qc.append(d[mask_qc])
@@ -276,7 +309,10 @@ class BinnedStats:
         
         # oman, ombg
         for v in ('oman', 'ombg'):
-            val = numpy.array(data[self.obsvar+'@'+v][mask_qc])
+            # TODO, squash mask and mask_qc to speedup
+            val = data[self.obsvar+'@'+v]
+            val = val[mask] if mask is not None else val
+            val = val[mask_qc]
             if len(self.bin_dims) > 0:
                 H, _ = numpy.histogramdd(dim_val_qc, self.bin_edges, weights=val)
             else:
@@ -349,13 +385,12 @@ def gen_bins(bin_spec):
 
     for v, k in bin_spec.items():
         edges = None
-
-        # make sure either res/bins specified, but not both
-        if len(set(k.keys()).intersection(set(('bins', 'res')))) != 1:
-            raise Exception("error in bin specification: each dimension must "
-                            + " contain either 'res' or 'bins', but not both")
+        
+        # TODO throw an error if bins and res given
         if 'bins' in k:
             edges = numpy.array(k['bins'])
+            # TODO throw an error if bounds also given
+
         elif 'res' in k:
             res = k['res']
 
@@ -376,6 +411,11 @@ def gen_bins(bin_spec):
                                 + "dimensions if 'res' is specified")
 
             edges = numpy.arange(bounds[0], bounds[1] + res/2.0, res)
+        else:
+            # this dimension is only used for bounds
+            if 'bounds' in k:
+                bounds = k['bounds']
+            edges = numpy.array(bounds)
 
         assert v not in bin_dim, "A duplicate dimension was specified."
         bin_dim += (v,)
