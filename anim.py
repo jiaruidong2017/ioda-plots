@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
-import collections
-import xarray
-import numpy as np
-import dateutil
-import pandas as pd
-import datetime
+from PIL import Image, ImageDraw
 import argparse
+import cartopy.crs as ccrs
+import collections
+import datetime
+import dateutil
+import numpy as np
+import pandas as pd
+import xarray
 
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
-import cartopy.crs as ccrs
 from matplotlib.animation import FuncAnimation
 
 
 # get command line arguments
-parser = argparse.ArgumentParser(description="Generate an animation of observation locations.")
+parser = argparse.ArgumentParser(
+  description="Generate an animation of observation locations, saving as an animated GIF")
 parser.add_argument("iodafiles", nargs="*")
 parser.add_argument("--output","-o", type=str, default="obs.gif",
   help="Output filename (default: %(default)s)")
@@ -85,46 +87,48 @@ gl.xlocator = mticker.FixedLocator([-90, 0, 90, 180, 270])
 fig.tight_layout()
 
 
+# function to save frames
+images = []
+def save_image():
+  # save the frame
+  fig.canvas.draw()
+  w,h=fig.canvas.get_width_height()
+  buf = np.frombuffer(fig.canvas.tostring_argb(), dtype=np.uint8)
+  buf.shape = (w,h,4)
+  buf = np.roll(buf, 3, axis=2)
+  img = Image.frombytes("RGBA", (w,h), buf.tostring())
+  images.append(img)
+
+
 # special case of no observations, so that things dont break
 if empty:
-  frames = 1
+  frames = 0
   plt.annotate("NO OBSERVATIONS", (0.5,0.5), xycoords='figure fraction',
     fontweight='bold', ha='center', va='center', size='xx-large')
+  save_image()
 else:
   s=plt.scatter(lon,lat, s=2, transform=ccrs.PlateCarree())
   plt.scatter(lon, lat, s=2, transform=ccrs.PlateCarree(), color='lightgray')
 
-# plot all the frames in the animation
-prev=None
-def update(i):
-  if empty:
-    return
 
-  global prev
-
+# generate each frame
+for frame in range(frames):
   # what are the beginning and ending times of the window for this frame?
-  ds = start_time.replace(tzinfo=datetime.timezone.utc) + args.obs_interval*i
+  ds = start_time.replace(tzinfo=datetime.timezone.utc) + args.obs_interval*frame
   dw1 = ds - args.obs_window
   dw2 = ds + args.obs_window
 
   # only keep observations in that window
   mask = np.logical_and(dt <= dw2, dt >=dw1 )
 
-  # if this is not the first animation frame, remove the plotted elements from the previous frame
-  if prev is not None:
-    for p in prev:
-      p.remove()
-  prev=[]
+  # scatter plot, and save
+  scatter = plt.scatter(lon[mask], lat[mask], s=2.5, transform=ccrs.PlateCarree(), color='cornflowerblue')
+  annotate = ax.annotate(ds, xycoords='axes points', xy=(0,-12))
+  save_image()
 
-  # scatter plot, saving the handles for use by the next frame
-  x = plt.scatter(lon[mask], lat[mask], s=2.5, transform=ccrs.PlateCarree(), color='cornflowerblue')
-  prev.append(x)
-  x = ax.annotate(ds, xycoords='axes points', xy=(0,-12))
-  prev.append(x)
+  # cleanup
+  scatter.remove()
+  annotate.remove()
 
-
-# start generating frames and save the animated gif (hmm, repeat_delay doesnt seem to work)
-anim = FuncAnimation(fig, update, frames=np.arange(0, frames), interval=100, repeat_delay=2000)
-anim.save(args.output, writer='imagemagick')
-plt.close()
-
+# write out the animated GIF
+images[0].save(args.output, save_all=True, append_images=images[1:], loop=0, palettesize=16)
