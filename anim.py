@@ -93,10 +93,10 @@ def save_image():
   # save the frame
   fig.canvas.draw()
   w,h=fig.canvas.get_width_height()
-  buf = np.frombuffer(fig.canvas.tostring_argb(), dtype=np.uint8)
-  buf.shape = (w,h,4)
-  buf = np.roll(buf, 3, axis=2)
-  img = Image.frombytes("RGBA", (w,h), buf.tostring())
+  buf = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+  buf.shape = (w,h,3)
+  #buf = np.roll(buf, 3, axis=2)
+  img = Image.frombytes("RGB", (w,h), buf.tostring())
   images.append(img)
 
 
@@ -112,6 +112,7 @@ else:
 
 
 # generate each frame
+palette_idx=0
 for frame in range(frames):
   # what are the beginning and ending times of the window for this frame?
   ds = start_time.replace(tzinfo=datetime.timezone.utc) + args.obs_interval*frame
@@ -120,6 +121,11 @@ for frame in range(frames):
 
   # only keep observations in that window
   mask = np.logical_and(dt <= dw2, dt >=dw1 )
+
+  # if there ARE observations in this frame, let this frame serve
+  # as the source of the overall GIF palette
+  if (np.sum(mask) > 1):
+    palette_idx = frame
 
   # scatter plot, and save
   scatter = plt.scatter(lon[mask], lat[mask], s=2.5, transform=ccrs.PlateCarree(), color='cornflowerblue')
@@ -130,5 +136,12 @@ for frame in range(frames):
   scatter.remove()
   annotate.remove()
 
+# optimize
+# (still not as optimized as "gifsicle -O3")
+palette_size=16
+palette=images[palette_idx].quantize(palette_size, method=2)
+for i, img in enumerate(images):
+  images[i] = img.quantize(palette_size, method=2, palette=palette)
+
 # write out the animated GIF
-images[0].save(args.output, save_all=True, append_images=images[1:], loop=0, palettesize=16)
+images[0].save(args.output, save_all=True, append_images=images[1:], loop=0)
