@@ -34,7 +34,7 @@ cmap_seq="inferno"
 def plot_2d(data, daterange, **kwargs):
 
     title = kwargs['title']
-    title = data.obsvar if title is None else title   
+    title = data.obsvar if title is None else title
 
     # figure out what type of plot
     mesh_opt = {}
@@ -54,13 +54,13 @@ def plot_2d(data, daterange, **kwargs):
                               linestyle='--', draw_labels=True)
             gl.xformatter = gridliner.LONGITUDE_FORMATTER
             gl.xlocator = mticker.FixedLocator([-90, 0, 90, 180, 270])
-            gl.xlabels_top = False            
+            gl.xlabels_top = False
             gl_label_style = {'color': 'gray', 'size': 8}
             gl.xlabel_style = gl_label_style
             gl.yformatter = gridliner.LATITUDE_FORMATTER
             gl.ylocator = mticker.FixedLocator([-90, -60, -30, 0, 30, 60, 90])
             gl.ylabels_right = False
-            gl.ylabel_style = gl_label_style            
+            gl.ylabel_style = gl_label_style
             # coastline, bkg color
             ax.coastlines(color='k', alpha=0.5)
             ax.background_patch.set_facecolor('lightgray')
@@ -89,7 +89,7 @@ def plot_2d(data, daterange, **kwargs):
         x_dim = 0
         y_dim = 1
         def plot_type_pre(ax):
-            pass        
+            pass
 
     print("Plot 2D ",xy_type, data)
 
@@ -110,8 +110,11 @@ def plot_2d(data, daterange, **kwargs):
         #dstr = [d.strftime("%Y-%m-%d") for d in dates]
         #dstr = dstr[0] if dstr[0] == dstr[1] else dstr[0] + ' to ' + dstr[1]
         #plt.annotate(dstr, ha='right', xycoords='axes points', xy=(420, -24.0))
+        t=title+" "+title_add
         exp = kwargs['exp_name'] if "exp_name" in kwargs else ""
-        plt.title(title+" "+title_add+ " (" + exp +")")
+        if exp != "":
+          t = t +" (" + exp +")"
+        plt.title(t)
         i = -24.0
         for t in text:
             plt.annotate(t, xycoords='axes points', xy=(0.0, i))
@@ -121,7 +124,7 @@ def plot_2d(data, daterange, **kwargs):
         plt.annotate(dstr, ha='right', xycoords='axes points', xy=(420, -24.0))
         plot_type_pre(ax)
         return ax
-    
+
     def plot_common_post(type_):
         bbox_inches='tight' if kwargs['thumbnail'] else None
         plt.colorbar(orientation='vertical', shrink=0.7, fraction=0.02)
@@ -136,7 +139,7 @@ def plot_2d(data, daterange, **kwargs):
         dMax = numpy.max(d)
         dSum = numpy.sum(d)
         text = ["min: {:0.0f}".format(dSum),
-                "max: {:0.0f}".format(dMax),]        
+                "max: {:0.0f}".format(dMax),]
         if p == 'count':
             dRange = numpy.percentile(d[d>0], [99])[0]
         plot_common_pre(title_add=p, text=text)
@@ -160,12 +163,12 @@ def plot_2d(data, daterange, **kwargs):
     plot_common_pre(title_add=" count_pctbad", text=text)
     plt.pcolormesh(mesh_i, mesh_j, d, cmap=cmap_seq, **mesh_opt)
     plot_common_post('count_pctbad')
-    
+
     # rmsd
-    for p in ('ombg', 'oman'):        
+    for p in ('ombg', ):
         d = data.rmsd(mode=p)
         dMax = numpy.max(d)
-        dAvg = numpy.mean(d)   
+        dAvg = numpy.mean(d)
         text = ['max: {:0.2e}'.format(dMax),
                 'avg: {:0.2e}'.format(dAvg),]
 
@@ -183,19 +186,19 @@ def plot_2d(data, daterange, **kwargs):
         plot_common_pre(title_add=p+" rmsd", text=text)
         plt.pcolormesh(mesh_i, mesh_j, d, cmap=cmap, norm=norm, **mesh_opt)
         plot_common_post(p+'_rmsd')
-        
-    
+
+
     # bias
-    for p in ('ombg', 'oman'):
+    for p in ('ombg', ):
         d = data.mean(mode=p)
         dMax = max(numpy.max(d), abs(numpy.min(d)))
-        dAvg = numpy.mean(d[count_qc > 0])        
+        dAvg = numpy.mean(d[count_qc > 0])
         text = ['max: {:0.2e}'.format(dMax),
-                'avg: {:0.2e}'.format(dAvg)]            
+                'avg: {:0.2e}'.format(dAvg)]
 
         if p == 'ombg':
             dRange = numpy.max(numpy.abs(
-                numpy.percentile(d[count_qc > 0], [1,99])))        
+                numpy.percentile(d[count_qc > 0], [1,99])))
         d = numpy.transpose(d) if transpose else d
         plot_common_pre(title_add=p+' bias', text=text)
         plt.pcolormesh(mesh_i, mesh_j, d, cmap=cmap_div, vmin=-dRange, vmax=dRange,
@@ -263,9 +266,9 @@ def plot_2d(data, daterange, **kwargs):
 #     plot_common_pre(title=" count_pctbad")
 #     plt.pcolormesh(mesh_x, mesh_z, d, cmap=cmap_seq)
 #     plot_common_post('count_pctbad')
-    
+
 #     # rmsd
-#     for p in ('ombg', 'oman'):        
+#     for p in ('ombg', 'oman'):
 #         d = data.rmsd(mode=p)
 #         # dMax = numpy.max(d)
 #         # dAvg = numpy.mean(d)
@@ -292,7 +295,7 @@ def plot_2d(data, daterange, **kwargs):
 # ------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------
 def plot_1d(exps, daterange, **kwargs):
-    # TODO merge logic with plot_1d_z    
+    # TODO merge logic with plot_1d_z
 
     # handle either a list or a single exp being passed in
     if type(exps) is list:
@@ -307,7 +310,7 @@ def plot_1d(exps, daterange, **kwargs):
     # TODO, these are wrong, did this for quick fix to dates
     # put it back at some point
     bin_centers = [e.bin_edges[0][:-1] for e in exps]
-    
+
     #bin_centers = (data.bin_edges[0][:-1] + data.bin_edges[0][1:]) / 2.0
     #bin_widths = (data.bin_edges[0][1:] - data.bin_edges[0][:-1])
 
@@ -317,7 +320,7 @@ def plot_1d(exps, daterange, **kwargs):
 
     exp = kwargs['exp_name'] if "exp_name" in kwargs else None
     title = kwargs['title']
-    title = data.obsvar if title is None else title   
+    title = data.obsvar if title is None else title
 
     def plot_common_pre(title_add=""):
         plt.figure(figsize=(8.0, 4.0))
@@ -331,7 +334,7 @@ def plot_1d(exps, daterange, **kwargs):
         dstr = dstr[0] if dstr[0] == dstr[1] else dstr[0] + ' to '+dstr[1]
         plt.annotate(dstr, ha='right', xycoords='axes points', xy=(480, -28.0))
         plt.title(title+" "+title_add + exp_str)
-        
+
         if transpose:
             ax.set_ylabel(data.bin_dims[0])
         else:
@@ -346,10 +349,10 @@ def plot_1d(exps, daterange, **kwargs):
         if 'depth' in data.bin_dims:
             plt.gca().invert_yaxis()
 
-        # fix dates 
+        # fix dates
         if "time" in exps[0].bin_dims:
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%b-%d'))
-            
+
 
     def plot_common_post(type_):
         bbox_inches ='tight' if kwargs['thumbnail'] else None
@@ -370,7 +373,7 @@ def plot_1d(exps, daterange, **kwargs):
     # rmsd
     plot_common_pre(title_add="rmsd")
     for e in enumerate(exps):
-        for p in ('ombg', 'oman'):
+        for p in ('ombg', ):
             rmsd = e[1].rmsd(mode=p)
             d1 =  rmsd if transpose else bin_centers[e[0]]
             d2 =  bin_centers[e[0]] if transpose else rmsd
@@ -387,7 +390,7 @@ def plot_1d(exps, daterange, **kwargs):
     # bias
     plot_common_pre(title_add="bias")
     for e in enumerate(exps):
-        for p in ('ombg', 'oman'):
+        for p in ('ombg',):
             bias = e[1].mean(mode=p)
             d1 =  bias if transpose else bin_centers[e[0]]
             d2 =  bin_centers[e[0]] if transpose else bias
@@ -410,7 +413,7 @@ def main():
     import os
 
     parser = argparse.ArgumentParser(add_help=False)
-    
+
     parser_req = parser.add_argument_group("required arguments")
     parser_req.add_argument('-e','--exp', required=True, action="append", nargs="+",
         help="one or more files to load. This argument can be repeated to handle"+
@@ -422,7 +425,7 @@ def main():
             " is removed from the list of exps to plot." +
             " This option can only be used if more than 1 '--exp' is given. "+
             " If more than 2 '--exp' are given, 2D plots will not be generated, only 1D line plots.")
-    parser_opt.add_argument("-h", "--help", action="help", help="show this help message and exit")            
+    parser_opt.add_argument("-h", "--help", action="help", help="show this help message and exit")
     parser_opt.add_argument('--label', type=str, nargs="+", required=False,
         help = "Names for each experiment to use in the plot legends," +
             " coresponding to the order given by the '-exp' arguments. The" +
@@ -468,7 +471,7 @@ def main():
         if args.timeseries:
             data = BinnedStatsCollection.timeseries(data)
         else:
-            data = BinnedStatsCollection.merge(data)       
+            data = BinnedStatsCollection.merge(data)
         exps.append(data)
 
     # calculate the difference between the first experiment, if doing a comparison
@@ -483,11 +486,11 @@ def main():
         data = exps[0]
 
     print("")
-    print("Generating plots for: ", data)    
+    print("Generating plots for: ", data)
 
     # TODO check to make sure timeseries data is same format
     for k, v in data.binned_stats.items():
-        
+
         # determine what kind of plot this is
         s = set(v.bin_dims)
 
@@ -500,15 +503,15 @@ def main():
         #----------------------------------------------------------------------
 
         #  # Multiple 2D lat/lon plots
-        # if ( len(exps) == 1 and len(v.bin_dims) == 3 
+        # if ( len(exps) == 1 and len(v.bin_dims) == 3
         #      and set(('latitude', 'longitude')).issubset(s)):
         #     plot_3d_xy(exps_v[0])
-        
+
         # 2D plot
         if len(exps) == 1 and len(v.bin_dims) == 2:
             plot_2d(exps_v[0], **vars(args), exp_name=exps[0].exp(), daterange=daterange)
 
-        
+
         # The following can only be done for any number of experiments
         #----------------------------------------------------------------------
 
@@ -517,7 +520,7 @@ def main():
             exp_name = None if not args.diff else \
                 "<exp> - " + exp0_name
             plot_1d(exps_v, **vars(args), exp_name=exp_name, daterange=daterange)
-        
+
         else:
             # TODO 0-D data, can't think of anything to do with this
             print("Skipping ", v)

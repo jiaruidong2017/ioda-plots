@@ -45,7 +45,7 @@ class BinnedStatsCollectionTimeseries:
         self.bin_config = stats[0].bin_config
         self.binned_stats = {}
         self._exp = stats[0].exp()
-        
+
         self.daterange = (min([s.daterange[0] for s in stats]), max([s.daterange[1] for s in stats]))
 
         # TODO, use an average of the [0],[1]
@@ -62,13 +62,13 @@ class BinnedStatsCollectionTimeseries:
 
     def exp(self):
         return self._exp
-    
+
     def __sub__(self, other):
         return BinnedStatsCollectionDiff(self, other)
 
 
 # TODO handle region subselection
-# TODO handle binning extents 
+# TODO handle binning extents
 class BinnedStatsCollection:
     def __init__(self):
         self.exps = 1
@@ -92,34 +92,34 @@ class BinnedStatsCollection:
         return cls
 
     def save(self, filename):
-        print('writing binned stats to: ', filename)
+#        print('writing binned stats to: ', filename)
         f = gzip.GzipFile(filename, 'wb')
         f.write(pickle.dumps(self.__dict__, -1))
         f.close()
 
     @staticmethod
-    def create(ioda_file, yaml_file):
-        print('Reading: ', ioda_file)
+    def create(ioda_file, yaml_file, varname):
+#        print('Reading: ', ioda_file)
         cls = BinnedStatsCollection()
 
         # read in the ioda data
         ioda_data = xarray.open_dataset(ioda_file)
         cls.obsvar = get_valid_obsvars(ioda_data)
-        assert len(cls.obsvar) == 1
+        assert len(cls.obsvar) >= 1
         cls.obsvar = cls.obsvar[0]
 
         # save the min/max datetimes
         d = ioda_data['datetime@MetaData']
         cls.daterange = [dateutil.parser.parse(str(s.data.astype(str))) for s in
              [numpy.min(d), numpy.max(d)] ]
-        
+
         # read the yaml file
         with open(yaml_file, 'r') as stream:
             cls.bin_config = yaml.safe_load(stream)
 
         # for each binning type, do the binning
         for binning_spec in cls.bin_config['binning']:
-            bs = BinnedStats(ioda_data, binning_spec)
+            bs = BinnedStats(ioda_data, binning_spec, varname)
             if bs.obsvar is None:
                 continue
             cls.binned_stats[bs.name] = bs
@@ -178,7 +178,7 @@ class BinnedStatsTimeseries:
         for s in self._series:
             ar.append(s.count(qc))
         return numpy.array(ar)
-    
+
     def rmsd(self, mode):
         ar=[]
         for s in self._series:
@@ -221,30 +221,35 @@ class BinnedStatsDiff:
 class BinnedStats:
     ''' stats for a single timeslice within arbitrary dimensions'''
 
-    def __init__(self, data, binning_spec):
+    def __init__(self, data, binning_spec, varname):
         self.obsvar = None
-        
+
         # dimensions that are binned
         self.bin_dims = None
         self.bin_edges = None
-        
+
         # dimensions used only for cropping
         self.bound_dims = ()
         self.bound_edges = ()
 
-        self.name = binning_spec['name']        
+        self.name = binning_spec['name']
         self._data = {}
 
         # Get the list of variables this binning should operate on
         # and abort early if no binning will be done with these vars
         self.obsvar = get_valid_obsvars(data)
-        assert len(self.obsvar) == 1
-        self.obsvar = self.obsvar[0]
+        assert len(self.obsvar) >= 1
+        if varname is None:
+            self.obsvar = sorted(self.obsvar)[0]
+        else:
+            self.obsvar = varname
+            assert varname in self.obsvar
         if 'vars' in binning_spec:
             if self.obsvar not in binning_spec['vars']:
                 self.obsvar = None
         if self.obsvar is None:
             return
+
 
         # setup the bins for each dimension
         if 'dims' in binning_spec:
@@ -287,7 +292,7 @@ class BinnedStats:
             dim_val.append(dv)
 
         # calculate qc masks
-        mask_qc = numpy.array(data[self.obsvar+'@EffectiveQC0'] == 0)
+        mask_qc = numpy.array(data[self.obsvar+'@EffectiveQC'] == 0)
         mask_qc = mask_qc[mask] if mask is not None else mask_qc
         dim_val_qc = []
         for d in dim_val:
@@ -306,9 +311,11 @@ class BinnedStats:
         else:
             H = int(numpy.sum(mask_qc > 0))
         self._data['count_qc'] = H
-        
+
+        data[self.obsvar+'@ombg'] = data[self.obsvar+'@ObsValue'] - data[self.obsvar+'@hofx']
+
         # oman, ombg
-        for v in ('oman', 'ombg'):
+        for v in ('ombg', ):
             # TODO, squash mask and mask_qc to speedup
             val = data[self.obsvar+'@'+v]
             val = val[mask] if mask is not None else val
@@ -316,7 +323,7 @@ class BinnedStats:
             if len(self.bin_dims) > 0:
                 H, _ = numpy.histogramdd(dim_val_qc, self.bin_edges, weights=val)
             else:
-                H = numpy.sum(val) 
+                H = numpy.sum(val)
             self._data[v+'_sum'] = H
 
             val = val**2
@@ -327,12 +334,12 @@ class BinnedStats:
             self._data[v+'_sum2'] = H
 
     def __add__(self, other):
-        # TODO check to make sure they are equivalent first      
+        # TODO check to make sure they are equivalent first
         cls = copy.deepcopy(self)
         for d in cls._data:
             cls._data[d] += other._data[d]
         return cls
-    
+
     def __sub__(self, other):
         return BinnedStatsDiff(self, other)
 
@@ -369,7 +376,7 @@ class BinnedStats:
             d[count_qc > 0] /= count_qc[count_qc > 0]
             d = numpy.ma.masked_where(count_qc == 0, d)
         return d
-    
+
     def exps(self):
         return 1
 
@@ -385,7 +392,7 @@ def gen_bins(bin_spec):
 
     for v, k in bin_spec.items():
         edges = None
-        
+
         # TODO throw an error if bins and res given
         if 'bins' in k:
             edges = numpy.array(k['bins'])
@@ -435,17 +442,18 @@ def get_valid_obsvars(data):
 
     # check which variables have the required columns
     valid_obsvars = set()
-    required_cols = ('oman', 'ombg', 'EffectiveQC0', 'ObsValue')
+    required_cols = ('ObsValue', 'EffectiveError', 'hofx')
     for v in all_obsvars:
         if all_obsvars[v].issuperset(required_cols):
             valid_obsvars.add(v)
     return list(valid_obsvars)
 
 
+
 def _threaded_read_proc(args):
     ioda_file, other_args = args
     yaml_file = other_args.binning
-    data = BinnedStatsCollection.create(ioda_file, yaml_file)
+    data = BinnedStatsCollection.create(ioda_file, yaml_file, other_args.variable)
     return data
 
 
@@ -461,11 +469,13 @@ def main():
     parser.add_argument('-b', '--binning', type=str, default="binning.yaml",
                         help="path to the yaml file specifying the binning "
                              + " specification  (Default: %(default)s)")
-    parser.add_argument("--output", required=True, type=str,
+    parser.add_argument("-o", "--output", required=True, type=str,
                         help="name of the output file")
-    parser.add_argument("--threads", default=multiprocessing.cpu_count(),
+    parser.add_argument("-t", "--threads", default=multiprocessing.cpu_count(),
                         type=int,
                         help="number of threads to use (Default: %(default)s)")
+    parser.add_argument("-v", "--variable", default=None, type=str,
+                        help="name of variable to bin, if not given, first variable is chosen")
     args = parser.parse_args()
 
     # process each file and merge the stats
