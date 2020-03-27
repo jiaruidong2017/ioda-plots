@@ -4,7 +4,7 @@ import gzip
 import numpy
 import pickle
 import xarray
-import yaml
+from ruamel.yaml import YAML
 import copy
 import dateutil
 
@@ -115,7 +115,7 @@ class BinnedStatsCollection:
 
         # read the yaml file
         with open(yaml_file, 'r') as stream:
-            cls.bin_config = yaml.safe_load(stream)
+            cls.bin_config = YAML().load(stream)
 
         # for each binning type, do the binning
         for binning_spec in cls.bin_config['binning']:
