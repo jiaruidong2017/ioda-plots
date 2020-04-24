@@ -1,7 +1,36 @@
-binning:
-- name: latlon
-  dims:
-    latitude:  {res: 2.0}
-    longitude: {res: 2.0}
+# variables:
+# - brightness_temperature_1
+#- brightness_temperature_4
+# - brightness_temperature_6
 
-- name: global
+metrics:
+  obs: "@ObsValue"
+  oman: "@oman"
+  ombg: "@ombg"
+  inc:  "@oman - @ombg"
+
+binning:
+  # - name: latlon
+  #   dimensions:
+  #   - name: latitude
+  #     resolution: 2.0
+  #   - name: longitude
+  #     resolution: 2.0
+
+  - name: profile
+    dimensions:
+    - name: air_pressure
+      resolution: 1000.0
+      bounds: [0, 100000]
+
+  # - name: lat
+  #   dimensions:
+  #   - name: latitude
+  #     bins: [-90, -60, -30, 0, 30, 60, 90]
+
+  # - name: nino34
+  #   dimensions:
+  #   - name: latitude
+  #     bounds: [-5.0, 5.0]
+  #   - name: longitude
+  #     bounds: [-170.0, -120.0]
