@@ -4,6 +4,8 @@
 # which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
 
 import abc
+import cartopy.crs as ccrs
+from cartopy.mpl import gridliner
 import dateutil
 import iodaplots
 import logging
@@ -13,9 +15,9 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import sys
+import traceback
 
-import cartopy.crs as ccrs
-from cartopy.mpl import gridliner
+
 
 
 _logger = logging.getLogger(__name__)
@@ -36,9 +38,13 @@ class PlotType(abc.ABC):
       c2 = c.create(stats)
       if c2 is not None:
         if cls is PlotType:
-          return c2(stats, **kwargs)
-        else:
-          return c2
+          try:
+            c2 = c2(stats, **kwargs)            
+          except Exception:
+            _logger.error(f'error creating {c2}')
+            _logger.error(traceback.format_exc())            
+            c2 = None
+        return c2
 
     if cls == PlotType:
       return None
@@ -154,6 +160,16 @@ class PlotType2D(PlotType):
     self._vmax = None
 
 
+class PlotType2DHovmoller(PlotType2D):
+  @classmethod
+  def create(cls, stats):
+    if 'datetime' in [d.name for d in stats.bin_dims]:
+      return super().create(stats)
+
+  def plot(self, data):
+    plt.imshow(data)
+
+
 class PlotType2DLatlon(PlotType2D):
   @classmethod
   def create(cls, stats):
@@ -219,42 +235,44 @@ class PlotType2DLatlon(PlotType2D):
 #   pass
 
 def plot(exps, names, **kwargs):
-  print("woooo")
-#stats, outfile):
 
-  # pt = PlotType.create(stats)
-  # if pt is None:
-  #   _logger.error(f"Can't find a method to plot {stats}")
-  #   return
+  s = iodaplots.BinnedStatsCollection.load(exps[0])
+  for vk, v in s.variables.items():
+    for bk, b in v.items():
+      stats = b
+      outfile=kwargs['output']+f'{vk}_{bk}'
+     
+      pt = PlotType.create(stats)
+      if pt is None:
+        _logger.error(f"Can't find a method to plot {stats}")
+        continue
 
-  # _logger.info(f"plotting {stats} with {pt}")
+      _logger.info(f"plotting {stats} with {pt}")
 
-  # methods = [
-  #   ('stddev', stats.stddev),
-  #   ('rmsd',   stats.rmsd),
-  #   ('mean',  stats.mean),
-  #   ('bias',  stats.mean)]
+      methods = [
+        ('stddev', stats.stddev),
+        ('rmsd',   stats.rmsd),
+        ('mean',  stats.mean),
+        ('bias',  stats.mean)]
 
-  # fn = outfile + f'_count.png'
-  # pt.plot_before()
-  # pt.plot(stats.count)
-  # _logger.info(f'saving {fn}')
-  # plt.savefig(fn)
-  # plt.close()
+      fn = outfile + f'_count.png'
+      pt.plot_before()
+      pt.plot(stats.count)
+      _logger.info(f'saving {fn}')
+      plt.savefig(fn)
+      plt.close()
 
-  # for v in stats.variables:
-  #   for method in methods:
-  #     # get data, determine output filename
-  #     data = method[1](v)
-  #     fn = outfile + f'_{v}_{method[0]}.png'
+      for v in stats.variables:
+        for method in methods:
+          # get data, determine output filename
+          data = method[1](v)
+          fn = outfile + f'_{v}_{method[0]}.png'
 
-  #     # plot the figure
-  #     pt.plot_before()
-  #     pt.plot(data)
+          # plot the figure
+          pt.plot_before()
+          pt.plot(data)
 
-  #     # save figure and cleanup
-  #     _logger.info(f'saving {fn}')
-  #     plt.savefig(fn)
-  #     plt.close()
-
-
+          # save figure and cleanup
+          _logger.info(f'saving {fn}')
+          plt.savefig(fn)
+          plt.close()

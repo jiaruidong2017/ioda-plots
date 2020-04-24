@@ -95,6 +95,7 @@ def cat(bin_files, output):
   """
   Combine several binned stats files along the time dimension
   """
+  _logger.info(f'Concatenating {len(bin_files)} files(s).')
   stats=None
   for f in bin_files:
     s = iodaplots.BinnedStatsCollection.load(f)
@@ -102,6 +103,7 @@ def cat(bin_files, output):
       stats = s
     else:
       stats.cat(s)
+  _logger.info(f'saving concatenated file to {output}')
   stats.save(output)
 
 
@@ -111,6 +113,7 @@ def cat(bin_files, output):
               help="output binned statistics")
 def merge(bin_files, output):
   """  Combine multiple binned files into a single binned file """
+  _logger.info(f'merging {len(bin_files)} file(s).')
   stats=None
   for f in bin_files:
     s = iodaplots.BinnedStatsCollection.load(f)
@@ -141,17 +144,7 @@ def plot(exp, output, **kwargs) :
   """ Using binned files from one or more experiments, generate plots. """
 
   names, files = zip(*exp)
-  iodaplots.plot(files, names, **kwargs)
-  # _logger.info(f"iodaplots: plotting {bin_file}.")
-
-  # s = iodaplots.BinnedStatsCollection.load(bin_file)
-  # for vk, v in s.variables.items():
-  #   for bk, b in v.items():
-  #     try:
-  #       iodaplots.plot(b, f'{output}{vk}_{bk}')
-  #     except Exception :
-  #       logging.error(traceback.format_exc())
-
+  iodaplots.plot(files, names, output=output, **kwargs)
 
 if __name__=="__main__":
   cli()

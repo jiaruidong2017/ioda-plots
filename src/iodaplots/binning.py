@@ -101,6 +101,17 @@ class Dimension:
       self.bin_edges[0] = min(other.bin_edges[0], self.bin_edges[0])
       self.bin_edges[1] = max(other.bin_edges[1], self.bin_edges[1])
 
+  def cat(self, other):
+    # modify value at the joining edges
+    self.bin_edges[-1] += (other.bin_edges[0] - self.bin_edges[-1])/2.0
+
+    # add rest of the edges from the other set
+    self.bin_edges = numpy.concatenate( (self.bin_edges, other.bin_edges[1:]))
+
+    # ensure the result is monotonic
+    if not numpy.all( self.bin_edges[1:] >= self.bin_edges[:-1]):
+        raise Exception(f'unable to concatenate dimension "{self.name}", result is not monotonic.')    
+
   @property
   def bin_centers(self):
     dt = (self.bin_edges[1:] - self.bin_edges[:-1]) / 2.0
@@ -261,7 +272,7 @@ class BinnedStats:
     self.name = name
     self.count = count
     self.count_qc = count_qc
-    self._dimensions = dimensions
+    self._dimensions = collections.OrderedDict([(d.name, d) for d in dimensions])
     self._m = m
     self._m2 = m2
 
@@ -271,11 +282,11 @@ class BinnedStats:
 
   @property
   def bin_dims(self):
-    return [d for d in self._dimensions if d.bin_count > 1]
+    return [d for d in self._dimensions.values() if d.bin_count > 1]
 
   @property
   def clip_dims(self):
-    return [d for d in self._dimensions if d.bin_count == 1]
+    return [d for d in self._dimensions.values() if d.bin_count == 1]
 
   def mean(self, variable):
     d = self._m[variable].copy()
@@ -304,9 +315,33 @@ class BinnedStats:
     d[d < 0] = 0.0
     return numpy.sqrt( d )
 
-  def cat(self, other):
+  def cat(self, other, dim):
     """Concatenate statistics along the time dimensions for two sets of statistics"""
-    raise NotImplementedError(self)
+    
+    # does the binning alreay have an appropriate time dimension?
+    s_expand = dim not in [d.name for d in self.bin_dims] and len(self.bin_dims) > 0
+    o_expand = dim not in [d.name for d in other.bin_dims] and len(other.bin_dims) > 0
+
+    self._dimensions[dim].cat(other._dimensions[dim])
+    
+    # concatenate the counts
+    for v in ('count','count_qc'):
+      s = getattr(self, v)
+      o = getattr(other, v)
+      s = numpy.expand_dims(s, -1) if s_expand else s
+      o = numpy.expand_dims(o, -1) if o_expand else o
+      setattr(self, v, numpy.concatenate((s,o),-1))
+
+    # and concatentate the other 1st & 2nd moments
+    for v in ('_m','_m2'):
+      s = getattr(self, v)
+      o = getattr(other, v)
+      for m in s:
+        if s_expand:
+          s[m] = numpy.expand_dims(s[m], -1)
+        if o_expand:
+          o[m] = numpy.expand_dims(o[m], -1)
+        s[m] = numpy.concatenate( (s[m], o[m]), -1)
 
   def merge(self, other):
     """ Merge the statistics for two separate sets of binned statistics"""
@@ -331,15 +366,15 @@ class BinnedStats:
     self.count += other.count
 
     # update the clipping dimensions (should just be datetime?)
-    for i, _ in enumerate(self._dimensions):
-      self._dimensions[i].merge(other._dimensions[i])
+    for d in self._dimensions.keys():
+      self._dimensions[d].merge(other._dimensions[d])
 
 
   def serialize(self):
     xr = xarray.Dataset()
 
     # add all the dimensions
-    for d in self._dimensions:
+    for d in self._dimensions.values():
       # # ignore bin centers?
       # n = f'{d.name}@{self.name}'
       # xr.update({n: (n, d.bin_centers)})
@@ -367,7 +402,7 @@ class BinnedStats:
     return xr
 
   def __str__(self):
-    return f'<BinnedStats("{self.variable}","{self.name}", dims={len(self._dimensions)})>'
+    return f'<BinnedStats(variable="{self.variable}",name="{self.name}", dims={[d.name for d in self.bin_dims]} clipping={[d.name for d in self.clip_dims]})>'
 
 
 class BinnedStatsCollection:
@@ -452,12 +487,12 @@ class BinnedStatsCollection:
     # generate list of variables
     # TODO read this in from a nc attribute
     variables = [re.match('([a-zA-Z0-9_]+)%count@',v) for v in data.variables]
-    variables = set([v[1] for v in variables if v is not None])
+    variables = list(collections.OrderedDict.fromkeys([v[1] for v in variables if v is not None]))
 
     # generate a list of binning names
     # TODO read this in from a nc attribute
     bins = [re.match('.+@(.+)', v) for v in data.variables]
-    bins = set([b[1] for b in bins if b is not None])
+    bins = list(collections.OrderedDict.fromkeys([b[1] for b in bins if b is not None]))
 
     # read it all in!
     stats = collections.defaultdict(dict)
@@ -481,11 +516,18 @@ class BinnedStatsCollection:
       for bin_k, bin_v in var_v.items():
         bin_v.merge(other._stats[var_k][bin_k])
 
-  def cat(self, other):
+  def cat(self, other, dim='datetime'):
     """ Concatenate binned stats along their time dimension"""
     for var_k, var_v in self._stats.items():
-      for bin_k, bin_v in var_v.items():
-        bin_v.cat(other._stats[var_k][bin_k])
+      for bin_k in list(var_v.keys()):
+        bin_v = var_v[bin_k]
+        # TODO flip bin/var ordering to make this less annoying
+        if len(set([d.name for d in bin_v.bin_dims])-set( (dim,) )) >= 2:
+          # We can't (yet!) plot in 3D, so there is no reason keeping 3+ dimensions
+          _logger.warning(f'unable to cat "{var_k}" "{bin_k}", too many dimensions')
+          var_v.pop(bin_k)
+        else:
+          bin_v.cat(other._stats[var_k][bin_k], dim)
 
   def save(self, output):
     # TODO this is messy, swap the "variable" "BinnedStats" order??
@@ -558,7 +600,15 @@ class BinnedStatsCollection:
            'resolution': 1.0},]
       })
 
+      # and a global binning
+      binning.append({
+        'name':'global',
+        'dimensions':[]
+      })
+
     # vertical profiles
+    # TODO this doesn't work when merging files
+    #  due to the likely different bounds
     for v in ('depth','height','air_pressure'):
       v2=f'{v}@MetaData'
       if v2 in data.variables:
