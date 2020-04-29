@@ -124,6 +124,16 @@ class PlotType1DLat(PlotType1D):
       plt.axvline(x=0.0, color='black', alpha=0.5)
 
 
+class PlotType1DTimeseries(PlotType1D):
+  @classmethod
+  def create(cls, stats):
+    if stats.bin_dims[0].name in ('datetime',):
+      return super().create(stats)
+
+  def plot(self, data):
+    super().plot(data)
+
+
 class PlotType1DProfile(PlotType1D):
 
   _profile_dims_inverted = (
@@ -158,6 +168,13 @@ class PlotType2D(PlotType):
     super().__init__(stats, **kwargs)
     self._vmin = None
     self._vmax = None
+    self._transpose = False
+
+  def plot(self, data):
+    if not self._thumbnail:
+      plt.colorbar(orientation='vertical', shrink=0.7, fraction=0.02)
+
+    super().plot(data)
 
 
 class PlotType2DHovmoller(PlotType2D):
@@ -166,8 +183,41 @@ class PlotType2DHovmoller(PlotType2D):
     if 'datetime' in [d.name for d in stats.bin_dims]:
       return super().create(stats)
 
+  def __init__(self, stats, **kwargs):
+    super().__init__(stats, **kwargs)
+    self._transpose = self._dimensions[0].name == 'datetime'
+    self._flip_y = False
+
+    # longitude hovmollers are special
+    if 'longitude' in [d.name for d in self._dimensions]:
+      self._transpose = not self._transpose
+      self._flip_y = True
+ 
   def plot(self, data):
-    plt.imshow(data)
+    dims = self._dimensions
+
+    if self._transpose:
+      data = data.T
+      dims = list(reversed(dims))
+
+    plt.xlabel(dims[1].name)
+    plt.ylabel(dims[0].name)
+    
+    if self._flip_y:
+      plt.gca().invert_yaxis()
+
+    # TODO test if dimensions are equal distant
+    #plt.imshow(data)
+    plt.pcolormesh(dims[1].bin_edges, dims[0].bin_edges, data, 
+      cmap='rainbow', antialiased=True)
+
+    # line at 0N if latitude is a dimension
+    if dims[0].name == 'latitude':
+      b = dims[0].bounds
+      if numpy.min(b) < 0 < numpy.max(b):
+        plt.axhline(y=0.0, color='black', alpha=0.5)
+
+    super().plot(data)
 
 
 class PlotType2DLatlon(PlotType2D):
@@ -217,19 +267,14 @@ class PlotType2DLatlon(PlotType2D):
       vmin, vmax = tuple(rng)
 
     # TODO test if dimensions are regular, if not, do pcolormesh
-    plt.imshow( data, transform=ccrs.PlateCarree(), interpolation='nearest',
-        extent=( *self._dimensions[0].bounds, *self._dimensions[1].bounds),
-        origin="lower", cmap='rainbow', vmin=vmin, vmax=vmax)
-
-    if not self._thumbnail:
-      plt.colorbar(orientation='vertical', shrink=0.7, fraction=0.02)
+    # plt.imshow( data, transform=ccrs.PlateCarree(), interpolation='nearest',
+    #     extent=( *self._dimensions[0].bounds, *self._dimensions[1].bounds),
+    #     origin="lower", cmap='rainbow', vmin=vmin, vmax=vmax)
+    plt.pcolormesh(self._dimensions[0].bin_edges, self._dimensions[1].bin_edges, data, 
+      cmap='rainbow', transform=ccrs.PlateCarree(), vmin=vmin, vmax=vmax, antialiased=True)
 
     super().plot(data)
 
-
-
-# class PlotType2DHovmoller(PlotType2D):
-#   pass
 
 # class PlotType2DVertical(PlotType2D):
 #   pass
@@ -247,7 +292,8 @@ def plot(exps, names, **kwargs):
         _logger.error(f"Can't find a method to plot {stats}")
         continue
 
-      _logger.info(f"plotting {stats} with {pt}")
+      _logger.info(f"plotting {stats}")
+      _logger.info(f" with {pt}")
 
       methods = [
         ('stddev', stats.stddev),
