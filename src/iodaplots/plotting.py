@@ -12,8 +12,10 @@ import logging
 import numpy
 import matplotlib
 matplotlib.use('Agg')
+import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
+
 import sys
 import traceback
 
@@ -60,10 +62,10 @@ class PlotType(abc.ABC):
     # annotations based on clipping dims
     # TODO do some smarter logic to figure out the precision of the datetime needed
     self._annotations = []
-    for d in stats.clip_dims:
+    for d in stats.clip_dims + [d for d in stats.bin_dims if d.name == 'datetime']:
       if d.name == 'datetime':
         bs = [dateutil.parser.parse(str(b)).strftime("%Y-%m-%d %HZ") for b in d.bounds ]
-        self._annotations.append(f'date range:  {bs[0]} to {bs[1]}')
+        self._annotations.append(f'{bs[0]} to {bs[1]}')
       else:
         self._annotations.append(f'{d.name}:  {d.bounds[0]} to {d.bounds[1]}')
 
@@ -80,7 +82,44 @@ class PlotType(abc.ABC):
         y+= 12
         plt.annotate(a, xy=(0.0, y), xycoords='figure points', weight='light')
 
+      # title
       plt.title(self._title)
+
+      
+  def set_datetime_label(self, axis):
+    # set labels on the time axis depending on the date range
+    dim_names = [d.name for d in self._dimensions]
+    idx = dim_names.index('datetime')
+    dateLen = (self._dimensions[idx].bounds[1] - self._dimensions[idx].bounds[0])
+    dateLen = dateLen.astype('timedelta64[D]') / numpy.timedelta64(1, 'D')
+    # TODO sub-daily resolution ?
+    if dateLen <= 15: # show xaxis with daily resolution
+      major = mdates.DayLocator()
+      majorFmt = mdates.DateFormatter('%d')
+      minor = major
+    elif dateLen <= 31: # show xaxis with weekly resolution
+      major = mdates.WeekdayLocator(byweekday=mdates.MO)
+      majorFmt = mdates.DateFormatter('%m-%d')
+      minor = mdates.DayLocator()
+    elif dateLen <= 395: #show xaxis with monthly resolution
+      major = mdates.MonthLocator()
+      majorFmt = mdates.DateFormatter('%b')
+      minor = major
+    else: # otherwise, yearly resolution
+      major = mdates.YearLocator()
+      majorFmt = mdates.DateFormatter('%Y')
+      minor = mdates.MonthLocator()
+
+    if axis == 'x':
+      ax = plt.gca().xaxis
+    elif axis == 'y':
+      ax = plt.gca().yaxis
+    else:
+      raise Exception('"axis" must be "x" or "y"')
+
+    ax.set_major_locator(major)
+    ax.set_minor_locator(minor)
+    ax.set_major_formatter(majorFmt)
 
 
 class PlotType1D(PlotType):
@@ -132,6 +171,7 @@ class PlotType1DTimeseries(PlotType1D):
 
   def plot(self, data):
     super().plot(data)
+    self.set_datetime_label(axis='x')
 
 
 class PlotType1DProfile(PlotType1D):
@@ -153,9 +193,6 @@ class PlotType1DProfile(PlotType1D):
     self._transpose = True
     self._invert_y = stats.bin_dims[0].name in self._profile_dims_inverted
 
-
-# class PlotType1DTimeseries(PlotType1D):
-#   pass
 
 
 class PlotType2D(PlotType):
@@ -185,26 +222,31 @@ class PlotType2DHovmoller(PlotType2D):
 
   def __init__(self, stats, **kwargs):
     super().__init__(stats, **kwargs)
+    # TODO cleanup the designation of time axis
     self._transpose = self._dimensions[0].name == 'datetime'
-    self._flip_y = False
+    self._flip = False
 
     # longitude hovmollers are special
     if 'longitude' in [d.name for d in self._dimensions]:
       self._transpose = not self._transpose
-      self._flip_y = True
+      self._flip = True
  
   def plot(self, data):
     dims = self._dimensions
 
+    # transpose data?
     if self._transpose:
       data = data.T
       dims = list(reversed(dims))
 
-    plt.xlabel(dims[1].name)
-    plt.ylabel(dims[0].name)
-    
-    if self._flip_y:
-      plt.gca().invert_yaxis()
+    # draw the axis labels   
+    if self._flip:
+      plt.xlabel(dims[1].name)
+      plt.gca().invert_yaxis()      
+      self.set_datetime_label('y')      
+    else:
+      plt.ylabel(dims[0].name)
+      self.set_datetime_label('x')    
 
     # TODO test if dimensions are equal distant
     #plt.imshow(data)
@@ -216,6 +258,8 @@ class PlotType2DHovmoller(PlotType2D):
       b = dims[0].bounds
       if numpy.min(b) < 0 < numpy.max(b):
         plt.axhline(y=0.0, color='black', alpha=0.5)
+
+    plt.grid(True, alpha=0.5)
 
     super().plot(data)
 
