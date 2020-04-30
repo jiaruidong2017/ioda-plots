@@ -283,6 +283,10 @@ class BinnedStats:
   @property
   def bin_dims(self):
     return [d for d in self._dimensions.values() if d.bin_count > 1]
+  
+  @property
+  def bin_names(self):
+    return [d.name for d in self._dimensions.values() if d.bin_count > 1]
 
   @property
   def clip_dims(self):

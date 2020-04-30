@@ -54,15 +54,17 @@ class PlotType(abc.ABC):
       return cls
 
   def __init__(self, stats, **kwargs):
-    self._stats = stats
-    self._dimensions = stats.bin_dims
-    self._title = f"{stats.variable} {stats.name}"
+    self._stats = stats # list(BinnedStats)
+    # TODO set _dimensions to the union of dimensions 
+    self._dimensions = stats[0].bin_dims
+    self._title = f"{stats[0].variable}"
     self._thumbnail = False if 'thumbnail' not in kwargs else kwargs['thumbnail']
 
     # annotations based on clipping dims
     # TODO do some smarter logic to figure out the precision of the datetime needed
+    # TODO handle case where clip dims are different between experiments (datetime?)
     self._annotations = []
-    for d in stats.clip_dims + [d for d in stats.bin_dims if d.name == 'datetime']:
+    for d in stats[0].clip_dims + [d for d in stats[0].bin_dims if d.name == 'datetime']:
       if d.name == 'datetime':
         bs = [dateutil.parser.parse(str(b)).strftime("%Y-%m-%d %HZ") for b in d.bounds ]
         self._annotations.append(f'{bs[0]} to {bs[1]}')
@@ -125,7 +127,7 @@ class PlotType(abc.ABC):
 class PlotType1D(PlotType):
   @classmethod
   def create(cls, stats):
-    if len(stats.bin_dims) == 1:
+    if len(stats) >= 1 and len(stats[0].bin_dims) == 1:
       return super().create(stats)
 
   def __init__(self, stats, **kwargs):
@@ -138,27 +140,32 @@ class PlotType1D(PlotType):
     if self._invert_y:
       plt.gca().invert_yaxis()
     plt.grid(True, alpha=0.5)
-    self._ax.set_xlabel(self._dimensions[0].name)
+    
+    if self._dimensions[0].name != 'datetime':
+      self._ax.set_xlabel(self._dimensions[0].name)
 
     # get the data to plot, transpose it if required
-    d = (self._dimensions[0].bin_centers, data)
-    if self._transpose:
-      d = reversed(d)
+    for i, d in enumerate(data):
+      dims = self._stats[i].bin_dims
+      d2 = (dims[0].bin_centers, d)
 
-    plt.plot(*d)
+      if self._transpose:
+        d2 = reversed(d2)
+
+      plt.plot(*d2)
 
 
 class PlotType1DLat(PlotType1D):
   @classmethod
   def create(cls, stats):
-    if stats.bin_dims[0].name in ('latitude',):
+    if stats[0].bin_names[0] in ('latitude',):
       return super().create(stats)
 
   def plot(self, data):
     super().plot(data)
 
     # 0 line if latitudes are in range
-    b = self._stats.bin_dims[0].bounds
+    b = self._stats[0].bin_dims[0].bounds
     if numpy.min(b) < 0 < numpy.max(b):
       plt.axvline(x=0.0, color='black', alpha=0.5)
 
@@ -166,7 +173,7 @@ class PlotType1DLat(PlotType1D):
 class PlotType1DTimeseries(PlotType1D):
   @classmethod
   def create(cls, stats):
-    if stats.bin_dims[0].name in ('datetime',):
+    if stats[0].bin_names[0] in ('datetime',):
       return super().create(stats)
 
   def plot(self, data):
@@ -185,7 +192,7 @@ class PlotType1DProfile(PlotType1D):
 
   @classmethod
   def create(cls, stats):
-    if stats.bin_dims[0].name in cls._profile_dims:
+    if stats[0].bin_names[0] in cls._profile_dims:
       return super().create(stats)
 
   def __init__(self, stats, **kwargs):
@@ -198,7 +205,7 @@ class PlotType1DProfile(PlotType1D):
 class PlotType2D(PlotType):
   @classmethod
   def create(cls, stats):
-    if len(stats.bin_dims) == 2:
+    if len(stats)==1 and len(stats[0].bin_dims) == 2:
       return super().create(stats)
 
   def __init__(self, stats, **kwargs):
@@ -217,7 +224,7 @@ class PlotType2D(PlotType):
 class PlotType2DHovmoller(PlotType2D):
   @classmethod
   def create(cls, stats):
-    if 'datetime' in [d.name for d in stats.bin_dims]:
+    if 'datetime' in stats[0].bin_names:
       return super().create(stats)
 
   def __init__(self, stats, **kwargs):
@@ -267,7 +274,7 @@ class PlotType2DHovmoller(PlotType2D):
 class PlotType2DLatlon(PlotType2D):
   @classmethod
   def create(cls, stats):
-    if set([d.name for d in stats.bin_dims]) == set(['latitude','longitude']):
+    if set(stats[0].bin_names) == set(['latitude','longitude']):
       return super().create(stats)
 
   def __init__(self, stats, **kwargs):
@@ -325,37 +332,54 @@ class PlotType2DLatlon(PlotType2D):
 
 def plot(exps, names, **kwargs):
 
-  s = iodaplots.BinnedStatsCollection.load(exps[0])
-  for vk, v in s.variables.items():
-    for bk, b in v.items():
-      stats = b
+  # load all the experiment data
+  exp_data = [iodaplots.BinnedStatsCollection.load(e) for e in exps]
+
+  # make sure experiments have congruent stats
+  # TODO
+
+  # take difference from first exp, if doing a diff
+  # TODO
+  if kwargs['diff']:
+    if len(exps) >= 2:
+      _logger.info(f'Plotting difference from "{names[0]}"')
+      raise NotImplementedError()
+    else:
+      raise Exception(f"must have >= 2 experiments when using --diff flag")
+
+  # for each variable, and each binning of that variable, do plots
+  for vk in exp_data[0].variables:
+    exp_v = [ e.variables[vk] for e in exp_data ]    
+    for bk in exp_v[0]:
+      stats = [ e[bk] for e in exp_v]
+
       outfile=kwargs['output']+f'{vk}_{bk}'
      
       pt = PlotType.create(stats)
       if pt is None:
-        _logger.error(f"Can't find a method to plot {stats}")
+        _logger.error(f"Can't find a method to plot {len(stats)} {stats[0]}")
         continue
 
-      _logger.info(f"plotting {stats}")
+      _logger.info(f"plotting {len(stats)} {stats[0]}")
       _logger.info(f" with {pt}")
 
       methods = [
-        ('stddev', stats.stddev),
-        ('rmsd',   stats.rmsd),
-        ('mean',  stats.mean),
-        ('bias',  stats.mean)]
+        ('stddev', [s.stddev for s in stats]),
+        ('rmsd', [s.rmsd for s in stats]),
+        ('mean', [s.mean for s in stats])
+        ]
 
       fn = outfile + f'_count.png'
       pt.plot_before()
-      pt.plot(stats.count)
+      pt.plot([s.count for s in stats])
       _logger.info(f'saving {fn}')
       plt.savefig(fn)
       plt.close()
 
-      for v in stats.variables:
+      for v in stats[0].variables:
         for method in methods:
           # get data, determine output filename
-          data = method[1](v)
+          data = [m(v) for m in method[1]]
           fn = outfile + f'_{v}_{method[0]}.png'
 
           # plot the figure
