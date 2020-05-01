@@ -153,6 +153,9 @@ class Dimension:
     return (f'<Dimension("{self.name}", bounds={self.bounds}, '+
             f'bins={len(self.bin_edges)-1}>')
 
+  def __len__(self):
+    return self.bin_count
+
 
 class BinnedStats:
 

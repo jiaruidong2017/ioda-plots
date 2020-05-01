@@ -24,25 +24,22 @@ _logger = logging.getLogger(__name__)
 class PlotType(abc.ABC):
   @classmethod
   @abc.abstractmethod
-  def create(cls, stats, **kwargs):
+  def create(cls, dimensions, exp_cnt):
     """
     return an instance of this class, or one of its subclasses,
     if the given dimensions are appropriate for this class' plotting type.
     Otherwise return None
+
+    Args:
+      dimensions: list(iodaplots.Dimension)
+      exp_cnt: number of experiments that will be simultaneously plotted
     """
     # call create() on any subclasses
     # NOTE: subclasses will in turn call super().create(), winding up back here
     #  IF they self determine they are an appropriate type
     for c in cls.__subclasses__():
-      c2 = c.create(stats)
+      c2 = c.create(dimensions, exp_cnt)
       if c2 is not None:
-        if cls is PlotType:
-          try:
-            c2 = c2(stats, **kwargs)
-          except Exception:
-            _logger.error(f'error creating {c2}')
-            _logger.error(traceback.format_exc())
-            c2 = None
         return c2
 
     if cls == PlotType:
@@ -54,7 +51,7 @@ class PlotType(abc.ABC):
     self.stats = stats # list(BinnedStats)
     # TODO set _dimensions to the union of dimensions
     self._dimensions = stats[0].bin_dims
-    self._title = f"{stats[0].variable}"
+    self._title = f"{stats[0].variable} {kwargs['title']}"
     self._thumbnail = False if 'thumbnail' not in kwargs else kwargs['thumbnail']
 
     # annotations based on clipping dims
@@ -126,9 +123,9 @@ class PlotType(abc.ABC):
 
 class PlotType1D(PlotType):
   @classmethod
-  def create(cls, stats):
-    if len(stats) >= 1 and len(stats[0].bin_dims) == 1:
-      return super().create(stats)
+  def create(cls, dimensions, exp_cnt):
+    if exp_cnt >= 1 and len(dimensions) == 1:
+      return super().create(dimensions, exp_cnt)
 
   def __init__(self, stats, **kwargs):
     super().__init__(stats, **kwargs)
@@ -157,9 +154,9 @@ class PlotType1D(PlotType):
 
 class PlotType1DLat(PlotType1D):
   @classmethod
-  def create(cls, stats):
-    if stats[0].bin_names[0] in ('latitude',):
-      return super().create(stats)
+  def create(cls, dimensions, exp_cnt):
+    if dimensions[0].name == 'latitude':
+      return super().create(dimensions, exp_cnt)
 
   def plot(self, data):
     super().plot(data)
@@ -172,9 +169,9 @@ class PlotType1DLat(PlotType1D):
 
 class PlotType1DTimeseries(PlotType1D):
   @classmethod
-  def create(cls, stats):
-    if stats[0].bin_names[0] in ('datetime',):
-      return super().create(stats)
+  def create(cls, dimensions, exp_cnt):
+    if dimensions[0].name == 'datetime':
+      return super().create(dimensions, exp_cnt)
 
   def plot(self, data):
     super().plot(data)
@@ -191,9 +188,9 @@ class PlotType1DProfile(PlotType1D):
     'height',)
 
   @classmethod
-  def create(cls, stats):
-    if stats[0].bin_names[0] in cls._profile_dims:
-      return super().create(stats)
+  def create(cls, dimensions, exp_cnt):
+    if dimensions[0].name in cls._profile_dims:
+      return super().create(dimensions, exp_cnt)
 
   def __init__(self, stats, **kwargs):
     super().__init__(stats, **kwargs)
@@ -204,17 +201,42 @@ class PlotType1DProfile(PlotType1D):
 
 class PlotType2D(PlotType):
   @classmethod
-  def create(cls, stats):
-    if len(stats)==1 and len(stats[0].bin_dims) == 2:
-      return super().create(stats)
+  def create(cls, dimensions, exp_cnt):
+    if exp_cnt == 1 and len(dimensions) == 2:
+      return super().create(dimensions, exp_cnt)
 
   def __init__(self, stats, **kwargs):
     super().__init__(stats, **kwargs)
-    self._vmin = None
-    self._vmax = None
+    self._projection = None
+    self._transform = None
     self._transpose = False
 
   def plot(self, data):
+    print("")
+    idx = 1 if self._transpose else 0
+    d = data[0].T if not self._transpose else data[0]
+    print(self._transpose, d.shape)
+    print(self._dimensions[idx])
+    print(self._dimensions[1-idx])
+
+    args={}
+    if self._transform is not None:
+      args['transform'] = self._transform
+
+    # calculate adaptive range
+    vmin = None
+    vmax = None
+    if vmin is None or vmax is None:
+      _percentile = 99.0
+      rng = numpy.percentile(numpy.ma.array(data).compressed(),
+                             [(100.0-_percentile)/2.0,
+                              (100.0-_percentile)/2.0 + _percentile ])
+      vmin, vmax = tuple(rng)
+
+    plt.pcolormesh(self._dimensions[idx].bin_edges, self._dimensions[1-idx].bin_edges,
+                   d, cmap='rainbow', antialiased=True, vmin=vmin, vmax=vmax,
+                   **args)
+
     if not self._thumbnail:
       plt.colorbar(orientation='vertical', shrink=0.7, fraction=0.02)
 
@@ -223,73 +245,64 @@ class PlotType2D(PlotType):
 
 class PlotType2DHovmoller(PlotType2D):
   @classmethod
-  def create(cls, stats):
-    if 'datetime' in stats[0].bin_names:
-      return super().create(stats)
+  def create(cls, dimensions, exp_cnt):
+    if 'datetime' in [d.name for d in dimensions]:
+      return super().create(dimensions, exp_cnt)
 
   def __init__(self, stats, **kwargs):
     super().__init__(stats, **kwargs)
     # TODO cleanup the designation of time axis
-    self._transpose = self._dimensions[0].name == 'datetime'
-    self._flip = False
+    print(self._dimensions)
+    self._transpose = self._dimensions[0].name != 'datetime'
+    self._flip_y = False
 
     # longitude hovmollers are special
     if 'longitude' in [d.name for d in self._dimensions]:
       self._transpose = not self._transpose
-      self._flip = True
+      self._flip_y = True
 
   def plot(self, data):
-    dims = self._dimensions
 
-    # transpose data?
-    if self._transpose:
-      data[0] = data[0].T
-      dims = list(reversed(dims))
+    idx = 1 if self._transpose else 0
+    plt.xlabel(self._dimensions[idx].name)
+    plt.ylabel(self._dimensions[1-idx].name)
 
-    # draw the axis labels
-    if self._flip:
-      plt.xlabel(dims[1].name)
+    if self._flip_y:
       plt.gca().invert_yaxis()
-      self.set_datetime_label('y')
-    else:
-      plt.ylabel(dims[0].name)
-      self.set_datetime_label('x')
 
-    # TODO test if dimensions are equal distant
-    #plt.imshow(data)
-    plt.pcolormesh(dims[1].bin_edges, dims[0].bin_edges, data[0],
-      cmap='rainbow', antialiased=True)
+    self.set_datetime_label('x' if self._transpose else 'y')
+
+    super().plot(data)
 
     # line at 0N if latitude is a dimension
-    if dims[0].name == 'latitude':
-      b = dims[0].bounds
+    if 'latitude' in [d.name for d in self._dimensions]:
+      idx = 0 if self._transpose else 1
+      b = self._dimensions[idx].bounds
       if numpy.min(b) < 0 < numpy.max(b):
         plt.axhline(y=0.0, color='black', alpha=0.5)
 
     plt.grid(True, alpha=0.5)
 
-    super().plot(data)
-
 
 class PlotType2DLatlon(PlotType2D):
   @classmethod
-  def create(cls, stats):
-    if set(stats[0].bin_names) == set(['latitude','longitude']):
-      return super().create(stats)
+  def create(cls, dimensions, exp_cnt):
+    if set([d.name for d in dimensions]) == set(['latitude','longitude']):
+      return super().create(dimensions, exp_cnt)
 
   def __init__(self, stats, **kwargs):
     super().__init__(stats, **kwargs)
 
     # if latitude is not first in dimensions,
     # swap dimensions and indicate data should transposed
-    self._data_T = self._dimensions[0].name == 'longitude'
-    if not self._data_T:
-      self._dimensions.reverse()
+    self._transpose = self._dimensions[0].name != 'longitude'
 
     # TODO get projection from kwargs
+    projection_name = 'Robinson' #PlateCarree
     projection_args = {'central_longitude': 205,}
     self._projection = getattr(sys.modules['cartopy.crs'],
-                               'PlateCarree')(**projection_args)
+                               projection_name)(**projection_args)
+    self._transform=ccrs.PlateCarree()
 
   def plot_before(self):
     plt.figure(figsize=(8.0, 4.0))
@@ -303,28 +316,6 @@ class PlotType2DLatlon(PlotType2D):
     gl.xlocator = mticker.FixedLocator([-90, 0, 90, 180, 270])
     gl.yformatter = gridliner.LATITUDE_FORMATTER
     gl.ylocator = mticker.FixedLocator([-90, -60, -30, 0, 30, 60, 90])
-
-    #transpose data, if input dimensions were flipped
-    if self._data_T:
-      data = data.T
-
-    # calculate range
-    vmin = self._vmin
-    vmax = self._vmax
-    if vmin is None or vmax is None:
-      _percentile = 99.0
-      rng = numpy.percentile(numpy.ma.array(data).compressed(),
-                             [(100.0-_percentile)/2.0,
-                              (100.0-_percentile)/2.0 + _percentile ])
-      vmin, vmax = tuple(rng)
-
-    # TODO test if dimensions are regular, if not, do pcolormesh
-    # plt.imshow( data, transform=ccrs.PlateCarree(), interpolation='nearest',
-    #     extent=( *self._dimensions[0].bounds, *self._dimensions[1].bounds),
-    #     origin="lower", cmap='rainbow', vmin=vmin, vmax=vmax)
-    plt.pcolormesh(self._dimensions[0].bin_edges, self._dimensions[1].bin_edges,
-                   data[0], cmap='rainbow', transform=ccrs.PlateCarree(),
-                   vmin=vmin, vmax=vmax, antialiased=True)
 
     super().plot(data)
 
@@ -358,33 +349,55 @@ def plot(exps, names, **kwargs):
         # TODO, test and warn
         pass
 
+      # TOOD get a proper union of dimensions, when using multiple exps
+      dims = stats[0].bin_dims
+
       outfile=kwargs['output']+f'{vk}_{bk}'
 
-      pt = PlotType.create(stats)
-      if pt is None:
+      # Get a plotting class capable of these dimensions
+      plot_class = PlotType.create(dimensions=dims, exp_cnt=len(stats))
+      if plot_class is None:
         _logger.warning(f"Can't find a method to plot {len(stats)} {stats[0]}")
         continue
-
       _logger.info(f"plotting {len(stats)} {stats[0]}")
-      _logger.info(f" with {pt}")
+      _logger.info(f" with {plot_class}")
+
+      # global arguments
+      # TODO allow for yaml overrides
+      default_args = {
+        'scale': 'linear'
+      }
 
       methods = [
-        ('stddev', [s.stddev for s in stats]),
-        ('rmsd', [s.rmsd for s in stats]),
-        ('mean', [s.mean for s in stats])
+        ('stddev', [s.stddev for s in stats], {}),
+        ('rmsd', [s.rmsd for s in stats], {}),
+        ('mean', [s.mean for s in stats], {}),
+        ('bias', [s.mean for s in stats], {'scale':'div'})
         ]
 
-      fn = outfile + f'_count.png'
-      pt.plot_before()
-      data = [s.count for s in stats]
+      args = {
+        **default_args,
+        'title': 'count'
+        }
+      plotter = plot_class(stats, **args)
 
-      pt.plot(data)
+      fn = outfile + f'_count.png'
+      plotter.plot_before()
+      data = [s.count for s in stats]
+      plotter.plot(data)
       _logger.info(f'saving {fn}')
       plt.savefig(fn)
       plt.close()
 
       for v in stats[0].variables:
         for method in methods:
+
+          args = {
+            **default_args,
+            **method[2],
+            'title': f'{v} {method[0]}'
+          }
+          plotter = plot_class(stats, **args)
 
           # get data
           data = [m(v) for m in method[1]]
@@ -393,8 +406,8 @@ def plot(exps, names, **kwargs):
           fn = outfile + f'_{v}_{method[0]}.png'
 
           # plot the figure
-          pt.plot_before()
-          pt.plot(data)
+          plotter.plot_before()
+          plotter.plot(data)
 
           # save figure and cleanup
           _logger.info(f'saving {fn}')
