@@ -48,6 +48,9 @@ class PlotType(abc.ABC):
       return cls
 
   def __init__(self, stats, **kwargs):
+    default_args = {
+    }
+    self._args = {**default_args, **kwargs}
     self.stats = stats # list(BinnedStats)
     # TODO set _dimensions to the union of dimensions
     self._dimensions = stats[0].bin_dims
@@ -83,7 +86,6 @@ class PlotType(abc.ABC):
 
       # title
       plt.title(self._title)
-
 
   def set_datetime_label(self, axis):
     # set labels on the time axis depending on the date range
@@ -206,26 +208,28 @@ class PlotType2D(PlotType):
       return super().create(dimensions, exp_cnt)
 
   def __init__(self, stats, **kwargs):
-    super().__init__(stats, **kwargs)
+    default_args={
+      'scale': 'linear',
+      'vmin': None,
+      'vmax': None,
+    }
+    super().__init__(stats, **{**default_args, **kwargs})
+
     self._projection = None
     self._transform = None
     self._transpose = False
 
   def plot(self, data):
-    print("")
     idx = 1 if self._transpose else 0
     d = data[0].T if not self._transpose else data[0]
-    print(self._transpose, d.shape)
-    print(self._dimensions[idx])
-    print(self._dimensions[1-idx])
 
-    args={}
+    plt_args={}
     if self._transform is not None:
-      args['transform'] = self._transform
+      plt_args['transform'] = self._transform
 
     # calculate adaptive range
-    vmin = None
-    vmax = None
+    vmin = self._args['vmin']
+    vmax = self._args['vmax']
     if vmin is None or vmax is None:
       _percentile = 99.0
       rng = numpy.percentile(numpy.ma.array(data).compressed(),
@@ -233,9 +237,24 @@ class PlotType2D(PlotType):
                               (100.0-_percentile)/2.0 + _percentile ])
       vmin, vmax = tuple(rng)
 
-    plt.pcolormesh(self._dimensions[idx].bin_edges, self._dimensions[1-idx].bin_edges,
-                   d, cmap='rainbow', antialiased=True, vmin=vmin, vmax=vmax,
-                   **args)
+    # figure out the scale type
+    cmap='rainbow'
+    if self._args['scale'] == 'div':
+      cmap="RdBu_r"
+      vmax = numpy.max(numpy.abs( (vmin, vmax) ))
+      vmin = - vmax
+    if 'cmap' in self._args:
+      cmap = self._args['cmap']
+
+    plt.pcolormesh(
+      self._dimensions[idx].bin_edges, self._dimensions[1-idx].bin_edges,
+      d, cmap=cmap, antialiased=True, vmin=vmin, vmax=vmax,
+                   **plt_args)
+
+    # TODO allow configurable use of contour instead of mesh
+    # plt.contourf(
+    #   self._dimensions[idx].bin_centers, self._dimensions[1-idx].bin_centers,
+    #   d, cmap=cmap, antialiased=True, vmin=vmin, vmax=vmax, **args)
 
     if not self._thumbnail:
       plt.colorbar(orientation='vertical', shrink=0.7, fraction=0.02)
@@ -250,9 +269,10 @@ class PlotType2DHovmoller(PlotType2D):
       return super().create(dimensions, exp_cnt)
 
   def __init__(self, stats, **kwargs):
-    super().__init__(stats, **kwargs)
+    default_args = {
+    }
+    super().__init__(stats, **{**default_args, **kwargs})
     # TODO cleanup the designation of time axis
-    print(self._dimensions)
     self._transpose = self._dimensions[0].name != 'datetime'
     self._flip_y = False
 
@@ -291,17 +311,22 @@ class PlotType2DLatlon(PlotType2D):
       return super().create(dimensions, exp_cnt)
 
   def __init__(self, stats, **kwargs):
-    super().__init__(stats, **kwargs)
+    default_args = {
+      'projection' : 'PlateCarree',
+      'projection_args' : {
+        'central_longitude': 205,
+      }
+    }
+    super().__init__(stats, **{**default_args, **kwargs})
 
     # if latitude is not first in dimensions,
     # swap dimensions and indicate data should transposed
     self._transpose = self._dimensions[0].name != 'longitude'
 
     # TODO get projection from kwargs
-    projection_name = 'Robinson' #PlateCarree
-    projection_args = {'central_longitude': 205,}
-    self._projection = getattr(sys.modules['cartopy.crs'],
-                               projection_name)(**projection_args)
+    self._projection = getattr(
+        sys.modules['cartopy.crs'],
+        self._args['projection'])(**self._args['projection_args'])
     self._transform=ccrs.PlateCarree()
 
   def plot_before(self):
@@ -365,8 +390,10 @@ def plot(exps, names, **kwargs):
       # global arguments
       # TODO allow for yaml overrides
       default_args = {
-        'scale': 'linear'
+        'scale': 'linear',
       }
+      if kwargs['diff']:
+        default_args['scale'] ='div'
 
       methods = [
         ('stddev', [s.stddev for s in stats], {}),
@@ -377,13 +404,13 @@ def plot(exps, names, **kwargs):
 
       args = {
         **default_args,
-        'title': 'count'
+        'title': 'count/day',
         }
       plotter = plot_class(stats, **args)
 
       fn = outfile + f'_count.png'
       plotter.plot_before()
-      data = [s.count for s in stats]
+      data = [s.count() for s in stats]
       plotter.plot(data)
       _logger.info(f'saving {fn}')
       plt.savefig(fn)

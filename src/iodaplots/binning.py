@@ -308,8 +308,8 @@ class BinnedStats:
     """ why are you calling this? Use from_xarry() or from_ioda()"""
     self.variable = variable
     self.name = name
-    self.count = count
-    self.count_qc = count_qc
+    self._count = count
+    self._count_qc = count_qc
     self._dimensions = collections.OrderedDict([(d.name, d) for d in dimensions])
     self._m = m
     self._m2 = m2
@@ -330,17 +330,32 @@ class BinnedStats:
   def clip_dims(self):
     return [d for d in self._dimensions.values() if d.bin_count == 1]
 
+  def count(self, norm_time=True, norm_spatial=False):
+    ret = self._count
+
+    if norm_time:
+      if 'datetime' in self._dimensions:
+        d = self._dimensions['datetime']
+        b = d.bin_edges[1:] - d.bin_edges[0:-1]
+        b = b.astype('timedelta64[D]') / numpy.timedelta64(1, 'D')
+        ret /= b
+
+    if norm_spatial:
+      raise NotImplementedError()
+
+    return ret
+
   def mean(self, variable):
     d = self._m[variable].copy()
-    mask = self.count_qc > 0
-    d[mask] /= self.count_qc[mask]
+    mask = self._count_qc > 0
+    d[mask] /= self._count_qc[mask]
     d = numpy.ma.masked_where(numpy.logical_not(mask), d)
     return d
 
   def variance(self, variable):
-    mask = self.count_qc > 1
+    mask = self._count_qc > 1
     d = self._m2[variable].copy()
-    d[mask] /= (self.count_qc[mask] - 1)
+    d[mask] /= (self._count_qc[mask] - 1)
     d[d < 0] = 0.0
     d = numpy.ma.masked_where(numpy.logical_not(mask), d)
     return d
@@ -351,8 +366,8 @@ class BinnedStats:
   def rmsd(self, variable):
     # indirectly calculated using the binned 1st and 2nd moments
     d = self._m2[variable].copy()
-    m = self.count_qc > 0
-    d[m] /= self.count_qc[m]
+    m = self._count_qc > 0
+    d[m] /= self._count_qc[m]
     d = d + self.mean(variable)**2
     d[d < 0] = 0.0
     return numpy.sqrt( d )
@@ -392,12 +407,12 @@ class BinnedStats:
   def merge(self, other):
     """ Merge the statistics for two separate sets of binned statistics"""
     # TODO make sure the two sets are congruent
-    new_count_qc = self.count_qc + other.count_qc
+    new_count_qc = self._count_qc + other._count_qc
     for k in self._m:
       # difference in mean, needed for variance update
       delta = self.mean(k) - other.mean(k)
-      delta[self.count_qc == 0] = 0.0
-      delta[other.count_qc == 0] = 0.0
+      delta[self._count_qc == 0] = 0.0
+      delta[other._count_qc == 0] = 0.0
 
       # update sums
       self._m[k] += other._m[k]
@@ -405,12 +420,12 @@ class BinnedStats:
       # update sum of square from mean
       m = new_count_qc > 0
       self._m2[k] += other._m2[k]
-      self._m2[k][m] += ( (delta[m]**2)*self.count_qc[m]*other.count_qc[m] /
+      self._m2[k][m] += ( (delta[m]**2)*self._count_qc[m]*other._count_qc[m] /
                           new_count_qc[m] )
 
     # update fincal counts
-    self.count_qc = new_count_qc
-    self.count += other.count
+    self._count_qc = new_count_qc
+    self._count += other._count
 
     # update the clipping dimensions (should just be datetime?)
     for d in self._dimensions.keys():
@@ -438,8 +453,8 @@ class BinnedStats:
 
     # counts
     vbase = f'{self.variable}%'
-    xr.update({vbase+f'count@{self.name}': ( dims, self.count)})
-    xr.update({vbase+f'count_qc@{self.name}': ( dims, self.count_qc)})
+    xr.update({vbase+f'count@{self.name}': ( dims, self._count)})
+    xr.update({vbase+f'count_qc@{self.name}': ( dims, self._count_qc)})
 
     # first and second moments
     for v in self.variables:
@@ -801,9 +816,8 @@ class BinnedStatsDiff:
     # TODO handle overlap issues
     return self.stats1.clip_dims
 
-  @property
   def count(self):
-    return self.stats1.count - self.stats2.count
+    return self.stats1.count() - self.stats2.count()
 
   @property
   def count_qc(self):
