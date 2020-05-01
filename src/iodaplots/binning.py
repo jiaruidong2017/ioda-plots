@@ -110,7 +110,7 @@ class Dimension:
 
     # ensure the result is monotonic
     if not numpy.all( self.bin_edges[1:] >= self.bin_edges[:-1]):
-        raise Exception(f'unable to concatenate dimension "{self.name}", result is not monotonic.')    
+        raise Exception(f'unable to concatenate dimension "{self.name}", result is not monotonic.')
 
   @property
   def bin_centers(self):
@@ -283,7 +283,7 @@ class BinnedStats:
   @property
   def bin_dims(self):
     return [d for d in self._dimensions.values() if d.bin_count > 1]
-  
+
   @property
   def bin_names(self):
     return [d.name for d in self._dimensions.values() if d.bin_count > 1]
@@ -321,13 +321,13 @@ class BinnedStats:
 
   def cat(self, other, dim):
     """Concatenate statistics along the time dimensions for two sets of statistics"""
-    
+
     # does the binning alreay have an appropriate time dimension?
     s_expand = dim not in [d.name for d in self.bin_dims] and len(self.bin_dims) > 0
     o_expand = dim not in [d.name for d in other.bin_dims] and len(other.bin_dims) > 0
 
     self._dimensions[dim].cat(other._dimensions[dim])
-    
+
     # concatenate the counts
     for v in ('count','count_qc'):
       s = getattr(self, v)
@@ -508,21 +508,21 @@ class BinnedStatsCollection:
 
   def __init__(self, stats):
     """ Why are you calling this? Don't do that. You probably want load() or from_ioda()"""
-    self._stats = stats
+    self.stats = stats
 
   @property
   def variables(self):
-    return self._stats
+    return self.stats
 
   def merge(self, other):
     """ merge two sets of binned stats together"""
-    for var_k, var_v in self._stats.items():
+    for var_k, var_v in self.stats.items():
       for bin_k, bin_v in var_v.items():
-        bin_v.merge(other._stats[var_k][bin_k])
+        bin_v.merge(other.stats[var_k][bin_k])
 
   def cat(self, other, dim='datetime'):
     """ Concatenate binned stats along their time dimension"""
-    for var_k, var_v in self._stats.items():
+    for var_k, var_v in self.stats.items():
       for bin_k in list(var_v.keys()):
         bin_v = var_v[bin_k]
         # TODO flip bin/var ordering to make this less annoying
@@ -531,7 +531,7 @@ class BinnedStatsCollection:
           _logger.warning(f'unable to cat "{var_k}" "{bin_k}", too many dimensions')
           var_v.pop(bin_k)
         else:
-          bin_v.cat(other._stats[var_k][bin_k], dim)
+          bin_v.cat(other.stats[var_k][bin_k], dim)
 
   def save(self, output):
     # TODO this is messy, swap the "variable" "BinnedStats" order??
@@ -551,6 +551,19 @@ class BinnedStatsCollection:
     # save!
     xr.to_netcdf(output, format='NETCDF4', engine='netcdf4',
                  encoding=encoding)
+
+  def diff(self, other):
+    # I'm lazy, not creating a special class for collection of BinnedStatsDiff
+    c=collections.namedtuple('BinnedStatsDiffCollection', ('stats',))
+
+    bs={}
+    for vk, v in self.stats.items():
+      bs[vk]={}
+      for bk, b in v.items():
+        ob = other.stats[vk][bk]
+        bs[vk][bk] = BinnedStatsDiff(b, ob)
+
+    return c(bs)
 
   @staticmethod
   def _get_qc_metavar(data):
@@ -653,3 +666,94 @@ class BinnedStatsCollection:
     }
 
     return config
+
+
+class BinnedStatsDiff:
+
+  def __init__(self, stats1, stats2):
+    # sanity checks
+    if stats1.variable != stats2.variable:
+      raise Exception(f'BinnedStatsDiff(): variable names do not match: "{stats1.variable}" and "{stats2.variable}"')
+    if stats1.variables != stats2.variables:
+      raise Exception(f'BinnedStatsDiff(): variables do not match: "{stats1.variables}" and "{stats2.variables}"')
+    if stats1.name != stats2.name:
+      raise Exception(f'BinnedStatsDiff(): binning names do not match: "{stats1.name}" and "{stats2.name}"')
+
+    self.stats1 = stats1
+    self.stats2 = stats2
+
+    # make sure clipping dimensions are similar enough
+    for d1, d2 in zip(stats1.clip_dims, stats2.clip_dims):
+      if d1.name != d2.name:
+        raise Exception(f'BinnedStatsDiff(): clipping dimension names do not match: {d1.name} and {d2.name}')
+
+      if d1.name == 'datetime':
+        # calculate percentage overlap in the bounds
+        overlap_range = numpy.min((d1.bounds[1], d2.bounds[1])) - numpy.max((d1.bounds[0], d2.bounds[0]))
+        total_range = numpy.max( (d1.bounds, d2.bounds)) - numpy.min( (d1.bounds, d2.bounds))
+        overlap = overlap_range/total_range
+        if overlap < 0.95:
+          _logger.warn(f'binning "{stats1.name}": bounds of clipping dimension "{d1.name}" only overlaps by {int(overlap*100)} %' )
+          _logger.warn(f'  stats1 {d1.name} bounds: {d1.bounds}')
+          _logger.warn(f'  stats1 {d2.name} bounds: {d2.bounds}')
+          _logger.warn('  continuing, but the difference plots may not show the results you expect.')
+      else:
+        if numpy.sqrt(numpy.mean( (d1.bounds-d2.bounds)**2)) > 1e-5:
+          _logger.warn(f'BinnedStatsDiff(): Clipping dimension {d1.name} has different bounds for input stats')
+          _logger.warn(f'  stats1={d1.bounds}')
+          _logger.warn(f'  stats2={d2.bounds}')
+
+    # calculate dimension masks, in the case of non-overlapping sections of dimensions
+    for d1, d2 in zip(stats1.bin_dims, stats2.bin_dims):
+      print("TODO")
+      pass
+
+  @property
+  def variable(self):
+    return self.stats1.variable
+
+  @property
+  def variables(self):
+    return self.stats1.variables
+
+  @property
+  def bin_dims(self):
+    d1 = self.stats1.bin_dims
+    d2 = self.stats2.bin_dims
+
+    # TODO calculate the overlap
+    return d1
+
+  @property
+  def bin_names(self):
+    return self.stats1.bin_names
+
+  @property
+  def clip_dims(self):
+    # TODO handle overlap issues
+    return self.stats1.clip_dims
+
+  @property
+  def count(self):
+    return self.stats1.count - self.stats2.count
+
+  @property
+  def count_qc(self):
+    raise NotImplementedError()
+
+  def mean(self, variable):
+    return self.stats1.mean(variable) - self.stats2.mean(variable)
+
+  def rmsd(self, variable):
+    return self.stats1.rmsd(variable) - self.stats2.rmsd(variable)
+
+  def stddev(self, variable):
+    return self.stats1.stddev(variable) - self.stats2.stddev(variable)
+
+  def variance(self, variable):
+   return self.stats1.variance(variable) - self.stats2.variance(variable)
+
+  def __str__(self):
+    s=f'<BinnedStatsDiff(variable="{self.stats1.variable}", name="{self.stats1.name}", '
+    s+=f'dims={[d.name for d in self.stats1.bin_dims]}, clipping={[d.name for d in self.stats1.clip_dims]})>'
+    return s

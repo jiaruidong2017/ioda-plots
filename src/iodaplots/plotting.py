@@ -41,10 +41,10 @@ class PlotType(abc.ABC):
       if c2 is not None:
         if cls is PlotType:
           try:
-            c2 = c2(stats, **kwargs)            
+            c2 = c2(stats, **kwargs)
           except Exception:
             _logger.error(f'error creating {c2}')
-            _logger.error(traceback.format_exc())            
+            _logger.error(traceback.format_exc())
             c2 = None
         return c2
 
@@ -54,8 +54,8 @@ class PlotType(abc.ABC):
       return cls
 
   def __init__(self, stats, **kwargs):
-    self._stats = stats # list(BinnedStats)
-    # TODO set _dimensions to the union of dimensions 
+    self.stats = stats # list(BinnedStats)
+    # TODO set _dimensions to the union of dimensions
     self._dimensions = stats[0].bin_dims
     self._title = f"{stats[0].variable}"
     self._thumbnail = False if 'thumbnail' not in kwargs else kwargs['thumbnail']
@@ -87,7 +87,7 @@ class PlotType(abc.ABC):
       # title
       plt.title(self._title)
 
-      
+
   def set_datetime_label(self, axis):
     # set labels on the time axis depending on the date range
     dim_names = [d.name for d in self._dimensions]
@@ -140,13 +140,13 @@ class PlotType1D(PlotType):
     if self._invert_y:
       plt.gca().invert_yaxis()
     plt.grid(True, alpha=0.5)
-    
+
     if self._dimensions[0].name != 'datetime':
       self._ax.set_xlabel(self._dimensions[0].name)
 
     # get the data to plot, transpose it if required
     for i, d in enumerate(data):
-      dims = self._stats[i].bin_dims
+      dims = self.stats[i].bin_dims
       d2 = (dims[0].bin_centers, d)
 
       if self._transpose:
@@ -165,7 +165,7 @@ class PlotType1DLat(PlotType1D):
     super().plot(data)
 
     # 0 line if latitudes are in range
-    b = self._stats[0].bin_dims[0].bounds
+    b = self.stats[0].bin_dims[0].bounds
     if numpy.min(b) < 0 < numpy.max(b):
       plt.axvline(x=0.0, color='black', alpha=0.5)
 
@@ -237,27 +237,27 @@ class PlotType2DHovmoller(PlotType2D):
     if 'longitude' in [d.name for d in self._dimensions]:
       self._transpose = not self._transpose
       self._flip = True
- 
+
   def plot(self, data):
     dims = self._dimensions
 
     # transpose data?
     if self._transpose:
-      data = data.T
+      data[0] = data[0].T
       dims = list(reversed(dims))
 
-    # draw the axis labels   
+    # draw the axis labels
     if self._flip:
       plt.xlabel(dims[1].name)
-      plt.gca().invert_yaxis()      
-      self.set_datetime_label('y')      
+      plt.gca().invert_yaxis()
+      self.set_datetime_label('y')
     else:
       plt.ylabel(dims[0].name)
-      self.set_datetime_label('x')    
+      self.set_datetime_label('x')
 
     # TODO test if dimensions are equal distant
     #plt.imshow(data)
-    plt.pcolormesh(dims[1].bin_edges, dims[0].bin_edges, data, 
+    plt.pcolormesh(dims[1].bin_edges, dims[0].bin_edges, data[0],
       cmap='rainbow', antialiased=True)
 
     # line at 0N if latitude is a dimension
@@ -321,7 +321,7 @@ class PlotType2DLatlon(PlotType2D):
     # plt.imshow( data, transform=ccrs.PlateCarree(), interpolation='nearest',
     #     extent=( *self._dimensions[0].bounds, *self._dimensions[1].bounds),
     #     origin="lower", cmap='rainbow', vmin=vmin, vmax=vmax)
-    plt.pcolormesh(self._dimensions[0].bin_edges, self._dimensions[1].bin_edges, data, 
+    plt.pcolormesh(self._dimensions[0].bin_edges, self._dimensions[1].bin_edges, data[0],
       cmap='rainbow', transform=ccrs.PlateCarree(), vmin=vmin, vmax=vmax, antialiased=True)
 
     super().plot(data)
@@ -335,29 +335,32 @@ def plot(exps, names, **kwargs):
   # load all the experiment data
   exp_data = [iodaplots.BinnedStatsCollection.load(e) for e in exps]
 
-  # make sure experiments have congruent stats
-  # TODO
-
   # take difference from first exp, if doing a diff
-  # TODO
   if kwargs['diff']:
     if len(exps) >= 2:
       _logger.info(f'Plotting difference from "{names[0]}"')
-      raise NotImplementedError()
+      exp_data = [ d.diff(exp_data[0]) for d in exp_data[1:]]
     else:
       raise Exception(f"must have >= 2 experiments when using --diff flag")
 
+  # TODO pass to create() what is really needed, not "stats"
+
   # for each variable, and each binning of that variable, do plots
-  for vk in exp_data[0].variables:
-    exp_v = [ e.variables[vk] for e in exp_data ]    
+  for vk in exp_data[0].stats:
+    exp_v = [ e.stats[vk] for e in exp_data ]
     for bk in exp_v[0]:
+
+      # make sure clipping dimensions are the same among exps, otherwise send a warning
       stats = [ e[bk] for e in exp_v]
+      for s in stats[1:]:
+        # TODO, test and warn
+        pass
 
       outfile=kwargs['output']+f'{vk}_{bk}'
-     
+
       pt = PlotType.create(stats)
       if pt is None:
-        _logger.error(f"Can't find a method to plot {len(stats)} {stats[0]}")
+        _logger.warning(f"Can't find a method to plot {len(stats)} {stats[0]}")
         continue
 
       _logger.info(f"plotting {len(stats)} {stats[0]}")
@@ -371,15 +374,20 @@ def plot(exps, names, **kwargs):
 
       fn = outfile + f'_count.png'
       pt.plot_before()
-      pt.plot([s.count for s in stats])
+      data = [s.count for s in stats]
+
+      pt.plot(data)
       _logger.info(f'saving {fn}')
       plt.savefig(fn)
       plt.close()
 
       for v in stats[0].variables:
         for method in methods:
-          # get data, determine output filename
+
+          # get data
           data = [m(v) for m in method[1]]
+
+          #determine output filename
           fn = outfile + f'_{v}_{method[0]}.png'
 
           # plot the figure
