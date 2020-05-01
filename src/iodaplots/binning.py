@@ -3,6 +3,14 @@
 # This software is licensed under the terms of the Apache Licence Version 2.0
 # which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
 
+"""
+iodaplots binning classes.
+
+Responsible for creating spatial/temporal binning of observation
+statistics, as well as utilities for combining (merging and concatenating)
+those binned statistics
+"""
+
 from ruamel.yaml import YAML
 import collections
 import logging
@@ -16,7 +24,8 @@ _logger = logging.getLogger(__name__)
 __all__ = [
   'Dimension',
   'BinnedStats',
-  'BinnedStatsCollection'
+  'BinnedStatsCollection',
+  'BinnedStatsDiff'
 ]
 
 class Dimension:
@@ -42,8 +51,8 @@ class Dimension:
 
     # make sure exactly one from (resolution, bins) is defined
     if sum( x is not None for x in (resolution, bins)) == 2:
-      raise Exception(('error creating Dimension for "{0}":'+
-                       '"resolution" and "bins" cannot both be defined.').format(name))
+      raise Exception(f'error creating Dimension for "{name}" "resolution" and'+
+                      f' "bins" cannot both be defined.')
 
     # if bounds is given, make sure min value is first
     if bounds is not None:
@@ -65,15 +74,18 @@ class Dimension:
           raise Exception('Bounds need to be given for non lat/lon '
                            + 'dimensions if "resolution" is specified')
 
-      self.bin_edges = numpy.arange(bounds[0], bounds[1] + resolution/2.0, resolution)
+      self.bin_edges = numpy.arange(bounds[0], bounds[1] + resolution/2.0,
+                                    resolution)
 
       if not numpy.array_equal(self.bounds, numpy.array(bounds)):
-        _logger.warning(f'bounds were changed for dimension "{self.name}" to stay a fixed resolution')
+        _logger.warning(f'bounds were changed for dimension "{self.name}" '+
+                        f' to stay a fixed resolution')
 
     # if defining the dimension based on specified bin edges
     elif bins is not None:
       if bounds is not None:
-        raise Exception (f'Error for dimension "{name}": cannot specify both "bins" and "bounds"')
+        raise Exception (f'Error for dimension "{name}": cannot specify both '+
+                         f'"bins" and "bounds"')
 
       # make sure that the input bin edges are monotonic
       bins = numpy.array(bins)
@@ -90,12 +102,23 @@ class Dimension:
       raise Exception(f'No specs were given for "{name}", try again.')
 
   def merge(self, other):
+    """
+    Merge a dimension from two datasets. Afterward the number of bins in the
+     dimension will remain the same.
+
+    If a binning dimension: this will check to make sure the dimensions
+     are identical.
+    If a clipping dimension: the new bounds will be the union
+     of the two datasets.
+    """
     if self.name != other.name:
-      raise Exception(f'Trying to merge two different dimensions "{self.name}" and "{other.name}"')
+      raise Exception(f'Trying to merge two different dimensions "{self.name}"'+
+                      f' and "{other.name}"')
 
     if self.bin_count > 1:
       if ( numpy.sum(other.bin_edges - self.bin_edges)) > 1e-5:
-        raise Exception(f'Trying to merge dimension "{self.name}" with different bins')
+        raise Exception(f'Trying to merge dimension "{self.name}" with '+
+                        f'different bins')
     else:
       # only a single bin, we are using this dimension for datetime bounds?
       self.bin_edges[0] = min(other.bin_edges[0], self.bin_edges[0])
@@ -110,7 +133,8 @@ class Dimension:
 
     # ensure the result is monotonic
     if not numpy.all( self.bin_edges[1:] >= self.bin_edges[:-1]):
-        raise Exception(f'unable to concatenate dimension "{self.name}", result is not monotonic.')
+        raise Exception(f'unable to concatenate dimension "{self.name}", '+
+                        f'result is not monotonic.')
 
   @property
   def bin_centers(self):
@@ -126,7 +150,8 @@ class Dimension:
     return self.bin_edges[ [0,-1] ]
 
   def __repr__(self):
-    return f'<Dimension("{self.name}", bounds={self.bounds}, bins={len(self.bin_edges)-1}>'
+    return (f'<Dimension("{self.name}", bounds={self.bounds}, '+
+            f'bins={len(self.bin_edges)-1}>')
 
 
 class BinnedStats:
@@ -148,7 +173,8 @@ class BinnedStats:
     # TODO handle more gracefully, and print more info
     for d in dimensions:
       if d.name+"@MetaData" not in data.variables:
-        raise Exception(f'Dimension "{d.name}" specified in config but not found in data')
+        raise Exception(f'Dimension "{d.name}" specified in config but not '+
+                        f'found in data')
 
     # Make sure dimensions are only listed once
     for k,v in collections.Counter([d.name for d in dimensions]).items():
@@ -163,7 +189,8 @@ class BinnedStats:
       # TODO allow for cyclic longitude in clipping
       if d.name == "longitude":
         if d.bounds[0] < -180 or d.bounds[1] > 180:
-          NotImplementedError("unable to handle longitude clipping outside -180,180")
+          NotImplementedError("unable to handle longitude clipping outside "+
+                              "-180,180")
 
       # add this dimension to the mask
       dv = numpy.array(data[d.name+'@MetaData'])
@@ -212,7 +239,8 @@ class BinnedStats:
     for m_name, m_eq in metrics.items():
       # prepare the metric definition to be evaluated
       # TODO add error checking here
-      m_eq = re.sub('@([a-zA-Z0-9]*)', r"data.variables[variable+'@\g<1>']", m_eq)
+      m_eq = re.sub('@([a-zA-Z0-9]*)', r"data.variables[variable+'@\g<1>']",
+                    m_eq)
       d = numpy.array(eval(m_eq))
 
       # apply QC masking and/or clipping
@@ -223,12 +251,15 @@ class BinnedStats:
       stat_m[m_name], _ = numpy.histogramdd(dim_vals_qc, dim_bins, weights=d)
 
       # sum of square difference from the mean
-      # calculated using ofsset data (subtract global mean) to help numerical stability, maybe
+      # calculated using ofsset data (subtract global mean) to help numerical
+      # stability, maybe
       offset = 0.0 if len(d) == 0 else numpy.mean(d)
-      stat_m2[m_name], _ = numpy.histogramdd(dim_vals_qc, dim_bins, weights=(d-offset)**2)
+      stat_m2[m_name], _ = numpy.histogramdd(dim_vals_qc, dim_bins,
+                                             weights=(d-offset)**2)
       m = count_qc > 0
       stat_m2[m_name][m] = stat_m2[m_name][m]
-      stat_m2[m_name][m] -= (stat_m[m_name][m]-count_qc[m]*offset)**2/count_qc[m]
+      stat_m2[m_name][m] -= ( (stat_m[m_name][m] - count_qc[m]*offset)**2/
+                              count_qc[m] )
     args['m'] = stat_m
     args['m2'] = stat_m2
 
@@ -236,7 +267,8 @@ class BinnedStats:
 
   @classmethod
   def from_xarray(cls, variable, name, data):
-    _logger.debug(f'creating BinnedStats from xarray: variable="{variable}", binning="{name}"')
+    _logger.debug(f'creating BinnedStats from xarray: variable="{variable}", '+
+                  f'binning="{name}"')
 
     # arguments to pass to __init__(), append onto this
     # as we create the variables
@@ -245,9 +277,11 @@ class BinnedStats:
       'name': name }
 
     # get the dimensions
-    dimensions = [re.match(f'([a-zA-Z0-9_]+)%edges@{name}$',v) for v in data.variables]
+    dimensions = [re.match(f'([a-zA-Z0-9_]+)%edges@{name}$',v)
+                  for v in data.variables]
     dimensions = [d[1] for d in dimensions if d is not None]
-    args['dimensions'] = [Dimension.from_xarray(d, name, data) for d in dimensions]
+    args['dimensions'] = [Dimension.from_xarray(d, name, data)
+                          for d in dimensions]
 
     # counts
     args['count'] = numpy.array(data[f'{variable}%count@{name}'])
@@ -256,7 +290,8 @@ class BinnedStats:
     # get the metrics
     stat_m = {}
     stat_m2 = {}
-    metrics = [re.match(f'{variable}%m%([a-zA-Z0_9_]+)@{name}', m) for m in data.variables]
+    metrics = [re.match(f'{variable}%m%([a-zA-Z0_9_]+)@{name}', m)
+               for m in data.variables]
     metrics = [m[1] for m in metrics if m is not None]
     for m in metrics:
       stat_m[m] = numpy.array(data[f'{variable}%m%{m}@{name}'])
@@ -267,7 +302,7 @@ class BinnedStats:
     return cls(**args)
 
   def __init__(self, variable, name, dimensions, count, count_qc, m, m2):
-    """ why are you calling this? Don't call this. Use from_xarry() or from_ioda()"""
+    """ why are you calling this? Use from_xarry() or from_ioda()"""
     self.variable = variable
     self.name = name
     self.count = count
@@ -320,11 +355,15 @@ class BinnedStats:
     return numpy.sqrt( d )
 
   def cat(self, other, dim):
-    """Concatenate statistics along the time dimensions for two sets of statistics"""
+    """
+    Concatenate statistics along the time dimensions for two sets of statistics
+    """
 
     # does the binning alreay have an appropriate time dimension?
-    s_expand = dim not in [d.name for d in self.bin_dims] and len(self.bin_dims) > 0
-    o_expand = dim not in [d.name for d in other.bin_dims] and len(other.bin_dims) > 0
+    s_expand = (dim not in [d.name for d in self.bin_dims] and
+                len(self.bin_dims) > 0)
+    o_expand = (dim not in [d.name for d in other.bin_dims] and
+                len(other.bin_dims) > 0)
 
     self._dimensions[dim].cat(other._dimensions[dim])
 
@@ -363,7 +402,8 @@ class BinnedStats:
       # update sum of square from mean
       m = new_count_qc > 0
       self._m2[k] += other._m2[k]
-      self._m2[k][m] += (delta[m]**2)*self.count_qc[m]*other.count_qc[m]/new_count_qc[m]
+      self._m2[k][m] += ( (delta[m]**2)*self.count_qc[m]*other.count_qc[m] /
+                          new_count_qc[m] )
 
     # update fincal counts
     self.count_qc = new_count_qc
@@ -406,14 +446,19 @@ class BinnedStats:
     return xr
 
   def __str__(self):
-    return f'<BinnedStats(variable="{self.variable}",name="{self.name}", dims={[d.name for d in self.bin_dims]} clipping={[d.name for d in self.clip_dims]})>'
+    return (f'<BinnedStats(variable="{self.variable}", name="{self.name}", '+
+            f'dims={[d.name for d in self.bin_dims]}, '+
+            f'clipping={[d.name for d in self.clip_dims]})>' )
 
 
 class BinnedStatsCollection:
 
   @classmethod
   def from_ioda(cls, ioda_file, config_file):
-    """ Using a yaml configuration file, and input ioda NetCDF file, generate binned statistics"""    # open the
+    """
+    Using a yaml configuration file, and input ioda NetCDF file,
+    generate binned statistics
+    """
     _logger.debug(f'binning {ioda_file}')
 
     # open the data
@@ -449,15 +494,17 @@ class BinnedStatsCollection:
     else:
       variables = set(variables)
       if not valid_variables > variables:
-        _logger.warning("Some variables listed in binning configuration are not present in the data file:")
-        _logger.warning(f' unused variables: {list(variables - valid_variables)}')
+        _logger.warning("Some variables listed in binning configuration are "+
+                        "not present in the data file:")
+        _logger.warning(f' unused variables: {list(variables-valid_variables)}')
       variables &= valid_variables
     variables = sorted(list(variables))
     _logger.debug(f'binning variables: {variables}')
 
     # convert datetime to correct format
     # need this working before being able to do binning along the time dimension
-    time = pandas.to_datetime(numpy.array(data.variables['datetime@MetaData'].astype(str)))
+    time = pandas.to_datetime(
+              numpy.array(data.variables['datetime@MetaData'].astype(str)))
     time = numpy.array([ d.replace(tzinfo=None) for d in time])
     data.update({'datetime@MetaData': ('nlocs', time)})
 
@@ -478,7 +525,9 @@ class BinnedStatsCollection:
     stats = collections.defaultdict(dict)
     for v in list(variables):
       for b in binning:
-        stats[v][b['name']] = BinnedStats.from_ioda(data, v, **b, metrics=metrics, qc_metavar=qc_metavar )
+        stats[v][b['name']] = BinnedStats.from_ioda(data, v, **b,
+                                                    metrics=metrics,
+                                                    qc_metavar=qc_metavar )
 
     return cls(stats)
 
@@ -491,12 +540,14 @@ class BinnedStatsCollection:
     # generate list of variables
     # TODO read this in from a nc attribute
     variables = [re.match('([a-zA-Z0-9_]+)%count@',v) for v in data.variables]
-    variables = list(collections.OrderedDict.fromkeys([v[1] for v in variables if v is not None]))
+    variables = list(collections.OrderedDict.fromkeys([v[1]
+                    for v in variables if v is not None]))
 
     # generate a list of binning names
     # TODO read this in from a nc attribute
     bins = [re.match('.+@(.+)', v) for v in data.variables]
-    bins = list(collections.OrderedDict.fromkeys([b[1] for b in bins if b is not None]))
+    bins = list(collections.OrderedDict.fromkeys([b[1]
+                for b in bins if b is not None]))
 
     # read it all in!
     stats = collections.defaultdict(dict)
@@ -507,7 +558,9 @@ class BinnedStatsCollection:
     return cls(stats)
 
   def __init__(self, stats):
-    """ Why are you calling this? Don't do that. You probably want load() or from_ioda()"""
+    """
+    Why are you calling this? Don't do that. You want load() or from_ioda()
+    """
     self.stats = stats
 
   @property
@@ -527,8 +580,9 @@ class BinnedStatsCollection:
         bin_v = var_v[bin_k]
         # TODO flip bin/var ordering to make this less annoying
         if len(set([d.name for d in bin_v.bin_dims])-set( (dim,) )) >= 2:
-          # We can't (yet!) plot in 3D, so there is no reason keeping 3+ dimensions
-          _logger.warning(f'unable to cat "{var_k}" "{bin_k}", too many dimensions')
+          # We can't plot in 3D, so there is no reason keeping 3+ dimensions
+          _logger.warning(f'unable to cat "{var_k}" "{bin_k}", '+
+                           'too many dimensions')
           var_v.pop(bin_k)
         else:
           bin_v.cat(other.stats[var_k][bin_k], dim)
@@ -569,7 +623,7 @@ class BinnedStatsCollection:
   def _get_qc_metavar(data):
     """
     find the meta variable responsible for the qc flag
-    (currently assumes the "EffectiveQC" metavar with the highest number after it)
+    (currently assumes "EffectiveQC" metavar with the highest number after it)
     """
     all_metavars = list(set([k.split('@')[-1] for k in data.variables.keys()]))
     match = [ re.match("^EffectiveQC([0-9]*)$", v) for v in all_metavars]
@@ -673,11 +727,14 @@ class BinnedStatsDiff:
   def __init__(self, stats1, stats2):
     # sanity checks
     if stats1.variable != stats2.variable:
-      raise Exception(f'BinnedStatsDiff(): variable names do not match: "{stats1.variable}" and "{stats2.variable}"')
+      raise Exception(f'BinnedStatsDiff(): variable names do not match: '+
+                      f'"{stats1.variable}" and "{stats2.variable}"')
     if stats1.variables != stats2.variables:
-      raise Exception(f'BinnedStatsDiff(): variables do not match: "{stats1.variables}" and "{stats2.variables}"')
+      raise Exception(f'BinnedStatsDiff(): variables do not match: '+
+                      f'"{stats1.variables}" and "{stats2.variables}"')
     if stats1.name != stats2.name:
-      raise Exception(f'BinnedStatsDiff(): binning names do not match: "{stats1.name}" and "{stats2.name}"')
+      raise Exception(f'BinnedStatsDiff(): binning names do not match: '+
+                      f'"{stats1.name}" and "{stats2.name}"')
 
     self.stats1 = stats1
     self.stats2 = stats2
@@ -685,25 +742,33 @@ class BinnedStatsDiff:
     # make sure clipping dimensions are similar enough
     for d1, d2 in zip(stats1.clip_dims, stats2.clip_dims):
       if d1.name != d2.name:
-        raise Exception(f'BinnedStatsDiff(): clipping dimension names do not match: {d1.name} and {d2.name}')
+        raise Exception(f'BinnedStatsDiff(): clipping dimension names do '+
+                        f'not match: {d1.name} and {d2.name}')
 
       if d1.name == 'datetime':
         # calculate percentage overlap in the bounds
-        overlap_range = numpy.min((d1.bounds[1], d2.bounds[1])) - numpy.max((d1.bounds[0], d2.bounds[0]))
-        total_range = numpy.max( (d1.bounds, d2.bounds)) - numpy.min( (d1.bounds, d2.bounds))
+        overlap_range = (numpy.min((d1.bounds[1], d2.bounds[1])) -
+                         numpy.max((d1.bounds[0], d2.bounds[0])))
+        total_range = (numpy.max( (d1.bounds, d2.bounds)) -
+                       numpy.min( (d1.bounds, d2.bounds)))
         overlap = overlap_range/total_range
         if overlap < 0.95:
-          _logger.warn(f'binning "{stats1.name}": bounds of clipping dimension "{d1.name}" only overlaps by {int(overlap*100)} %' )
+          _logger.warn(f'binning "{stats1.name}": bounds of clipping '+
+                       f'dimension "{d1.name}" only overlaps by '+
+                       f'{int(overlap*100)} %' )
           _logger.warn(f'  stats1 {d1.name} bounds: {d1.bounds}')
           _logger.warn(f'  stats1 {d2.name} bounds: {d2.bounds}')
-          _logger.warn('  continuing, but the difference plots may not show the results you expect.')
+          _logger.warn('  continuing, but the difference plots may not show '+
+                       'the results you expect.')
       else:
         if numpy.sqrt(numpy.mean( (d1.bounds-d2.bounds)**2)) > 1e-5:
-          _logger.warn(f'BinnedStatsDiff(): Clipping dimension {d1.name} has different bounds for input stats')
+          _logger.warn(f'BinnedStatsDiff(): Clipping dimension {d1.name} has '+
+                       'different bounds for input stats')
           _logger.warn(f'  stats1={d1.bounds}')
           _logger.warn(f'  stats2={d2.bounds}')
 
-    # calculate dimension masks, in the case of non-overlapping sections of dimensions
+    # calculate dimension masks,
+    # (in the case of non-overlapping sections of dimensions)
     for d1, d2 in zip(stats1.bin_dims, stats2.bin_dims):
       print("TODO")
       pass
@@ -719,7 +784,7 @@ class BinnedStatsDiff:
   @property
   def bin_dims(self):
     d1 = self.stats1.bin_dims
-    d2 = self.stats2.bin_dims
+    #d2 = self.stats2.bin_dims
 
     # TODO calculate the overlap
     return d1
@@ -754,6 +819,7 @@ class BinnedStatsDiff:
    return self.stats1.variance(variable) - self.stats2.variance(variable)
 
   def __str__(self):
-    s=f'<BinnedStatsDiff(variable="{self.stats1.variable}", name="{self.stats1.name}", '
-    s+=f'dims={[d.name for d in self.stats1.bin_dims]}, clipping={[d.name for d in self.stats1.clip_dims]})>'
-    return s
+    return (f'<BinnedStatsDiff(variable="{self.stats1.variable}", '+
+            f'name="{self.stats1.name}", '+
+            f'dims={[d.name for d in self.stats1.bin_dims]}, '+
+            f'clipping={[d.name for d in self.stats1.clip_dims]})>')

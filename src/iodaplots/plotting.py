@@ -19,9 +19,6 @@ import matplotlib.ticker as mticker
 import sys
 import traceback
 
-
-
-
 _logger = logging.getLogger(__name__)
 
 class PlotType(abc.ABC):
@@ -64,9 +61,12 @@ class PlotType(abc.ABC):
     # TODO do some smarter logic to figure out the precision of the datetime needed
     # TODO handle case where clip dims are different between experiments (datetime?)
     self._annotations = []
-    for d in stats[0].clip_dims + [d for d in stats[0].bin_dims if d.name == 'datetime']:
+    dims = stats[0].clip_dims
+    dims += [d for d in stats[0].bin_dims if d.name == 'datetime']
+    for d in dims:
       if d.name == 'datetime':
-        bs = [dateutil.parser.parse(str(b)).strftime("%Y-%m-%d %HZ") for b in d.bounds ]
+        bs = [dateutil.parser.parse(str(b)).strftime("%Y-%m-%d %HZ")
+              for b in d.bounds ]
         self._annotations.append(f'{bs[0]} to {bs[1]}')
       else:
         self._annotations.append(f'{d.name}:  {d.bounds[0]} to {d.bounds[1]}')
@@ -92,7 +92,7 @@ class PlotType(abc.ABC):
     # set labels on the time axis depending on the date range
     dim_names = [d.name for d in self._dimensions]
     idx = dim_names.index('datetime')
-    dateLen = (self._dimensions[idx].bounds[1] - self._dimensions[idx].bounds[0])
+    dateLen = self._dimensions[idx].bounds[1] - self._dimensions[idx].bounds[0]
     dateLen = dateLen.astype('timedelta64[D]') / numpy.timedelta64(1, 'D')
     # TODO sub-daily resolution ?
     if dateLen <= 15: # show xaxis with daily resolution
@@ -288,7 +288,8 @@ class PlotType2DLatlon(PlotType2D):
 
     # TODO get projection from kwargs
     projection_args = {'central_longitude': 205,}
-    self._projection = getattr(sys.modules['cartopy.crs'], 'PlateCarree')(**projection_args)
+    self._projection = getattr(sys.modules['cartopy.crs'],
+                               'PlateCarree')(**projection_args)
 
   def plot_before(self):
     plt.figure(figsize=(8.0, 4.0))
@@ -321,8 +322,9 @@ class PlotType2DLatlon(PlotType2D):
     # plt.imshow( data, transform=ccrs.PlateCarree(), interpolation='nearest',
     #     extent=( *self._dimensions[0].bounds, *self._dimensions[1].bounds),
     #     origin="lower", cmap='rainbow', vmin=vmin, vmax=vmax)
-    plt.pcolormesh(self._dimensions[0].bin_edges, self._dimensions[1].bin_edges, data[0],
-      cmap='rainbow', transform=ccrs.PlateCarree(), vmin=vmin, vmax=vmax, antialiased=True)
+    plt.pcolormesh(self._dimensions[0].bin_edges, self._dimensions[1].bin_edges,
+                   data[0], cmap='rainbow', transform=ccrs.PlateCarree(),
+                   vmin=vmin, vmax=vmax, antialiased=True)
 
     super().plot(data)
 
@@ -350,7 +352,7 @@ def plot(exps, names, **kwargs):
     exp_v = [ e.stats[vk] for e in exp_data ]
     for bk in exp_v[0]:
 
-      # make sure clipping dimensions are the same among exps, otherwise send a warning
+      # make sure clipping dims are the same across exps, otherwise send warning
       stats = [ e[bk] for e in exp_v]
       for s in stats[1:]:
         # TODO, test and warn
