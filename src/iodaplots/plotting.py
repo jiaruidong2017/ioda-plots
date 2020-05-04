@@ -49,13 +49,13 @@ class PlotType(abc.ABC):
 
   def __init__(self, stats, **kwargs):
     default_args = {
+      'thumbnail': False,
     }
     self._args = {**default_args, **kwargs}
     self.stats = stats # list(BinnedStats)
     # TODO set _dimensions to the union of dimensions
     self._dimensions = stats[0].bin_dims
     self._title = f"{stats[0].variable} {kwargs['title']}"
-    self._thumbnail = False if 'thumbnail' not in kwargs else kwargs['thumbnail']
 
     # annotations based on clipping dims
     # TODO do some smarter logic to figure out the precision of the datetime needed
@@ -77,7 +77,7 @@ class PlotType(abc.ABC):
 
   @abc.abstractmethod
   def plot(self, data):
-    if not self._thumbnail:
+    if not self._args['thumbnail']:
       # annotations at the bottom
       y = 0.0
       for a in self._annotations:
@@ -256,7 +256,7 @@ class PlotType2D(PlotType):
     #   self._dimensions[idx].bin_centers, self._dimensions[1-idx].bin_centers,
     #   d, cmap=cmap, antialiased=True, vmin=vmin, vmax=vmax, **args)
 
-    if not self._thumbnail:
+    if not self._args['thumbnail']:
       plt.colorbar(orientation='vertical', shrink=0.7, fraction=0.02)
 
     super().plot(data)
