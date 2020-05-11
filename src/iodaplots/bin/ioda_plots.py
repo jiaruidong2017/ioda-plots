@@ -131,6 +131,8 @@ def merge(bin_files, output):
               ' lines on the 1D plots, or 2D plots if "--diff" is used.')
 @click.option('-o','--output', type=str, required=True, metavar='FILE',
               help='output FILE template')
+@click.option('-c','--config', type=click.File('r'),
+              help="configuration yaml file")
 @click.option('--diff', is_flag=True,
               help='Plots are the differences from a control experiment.'+
               ' The first "--exp" is considered the control experiment and is '+
@@ -140,11 +142,12 @@ def merge(bin_files, output):
 @click.option('--thumbnails', is_flag=True,
               help='Create simpler images suitable for thumbnails.'+
               ' (smaller and with fewer labels)')
-def plot(exp, output, **kwargs) :
+def plot(exp, output, config, **kwargs) :
   """ Using binned files from one or more experiments, generate plots. """
 
   names, files = zip(*exp)
-  iodaplots.plot(files, names, output=output, **kwargs)
+  iodaplots.plot(exps=files, names=names, output=output,
+                 config_file=config, **kwargs)
 
 if __name__=="__main__":
   cli()

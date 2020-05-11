@@ -239,7 +239,12 @@ class BinnedStats:
     # second order statistics for all the metrics defined in "metrics"
     stat_m = {}
     stat_m2 = {}
-    for m_name, m_eq in metrics.items():
+    for m in metrics:
+      m_eq = m['source']
+      m_name = m_eq
+      if 'name' in m:
+        m_name = m['name']
+
       # prepare the metric definition to be evaluated
       # TODO add error checking here
       m_eq = re.sub('@([a-zA-Z0-9]*)', r"data.variables[variable+'@\g<1>']",
@@ -331,14 +336,21 @@ class BinnedStats:
     return [d for d in self._dimensions.values() if d.bin_count == 1]
 
   def count(self, norm_time=True, norm_spatial=False):
-    ret = self._count
+    return self._normalize(self._count, norm_time, norm_spatial)
 
+  def count_qc(self, norm_time=True, norm_spatial=False):
+    return self._normalize(self._count_qc, norm_time, norm_spatial)
+
+  def _normalize(self, data, norm_time=True, norm_spatial=False):
+    # TODO allow specification of period for temporal normalizatin
+    #  currently fixed at 1 day
+    ret = data.copy()
     if norm_time:
       if 'datetime' in self._dimensions:
         d = self._dimensions['datetime']
-        b = d.bin_edges[1:] - d.bin_edges[0:-1]
-        b = b.astype('timedelta64[D]') / numpy.timedelta64(1, 'D')
-        ret /= b
+        b = (d.bin_edges[1:] - d.bin_edges[0:-1]).astype('timedelta64[ns]')
+        p = numpy.timedelta64(1,'D').astype('timedelta64[ns]')
+        ret /= (b/p)
 
     if norm_spatial:
       raise NotImplementedError()
@@ -386,7 +398,7 @@ class BinnedStats:
     self._dimensions[dim].cat(other._dimensions[dim])
 
     # concatenate the counts
-    for v in ('count','count_qc'):
+    for v in ('_count','_count_qc'):
       s = getattr(self, v)
       o = getattr(other, v)
       s = numpy.expand_dims(s, -1) if s_expand else s
@@ -488,12 +500,12 @@ class BinnedStatsCollection:
       config = cls.make_default_config(data)
     else:
       # otherwise read in a yaml file
-      config=YAML().load(config_file)
+      config=YAML().load(config_file)['binning']
 
     return cls.generate(data, **config)
 
   @classmethod
-  def generate(cls, data, binning, metrics, variables=None):
+  def generate(cls, data, bins, metrics, variables=None):
     """ generate binned statistics using the input data and parameters """
     # determine the list of meta varaiable that are required for each variables
     # currently "ObsValue", the QC variable, and anything else defined
@@ -502,8 +514,8 @@ class BinnedStatsCollection:
     qc_metavar = cls._get_qc_metavar(data)
     if qc_metavar is not None:
       required_cols.add(qc_metavar)
-    for v in metrics.values():
-      required_cols |= set(re.findall('@([a-zA-Z0-9]+)', v))
+    for m in metrics:
+      required_cols |= set(re.findall('@([a-zA-Z0-9]+)', m['source']))
 
     # get a list of valid variables
     valid_variables = cls._get_valid_variables(data, required_cols)
@@ -528,10 +540,10 @@ class BinnedStatsCollection:
 
     # add datetime as a dimensions, if not already in the lists
     # as a simple cropping dimensions that includes all observations
-    for b, _ in enumerate(binning):
-      if 'datetime' not in [d['name'] for d in binning[b]['dimensions']]:
+    for b, _ in enumerate(bins):
+      if 'datetime' not in [d['name'] for d in bins[b]['dimensions']]:
         v = data.variables['datetime@MetaData']
-        binning[b]['dimensions'].append(
+        bins[b]['dimensions'].append(
           {'name': 'datetime',
            'bounds': (
              numpy.array(numpy.min(v)),
@@ -542,7 +554,7 @@ class BinnedStatsCollection:
     # TODO threadding pool here?
     stats = collections.defaultdict(dict)
     for v in list(variables):
-      for b in binning:
+      for b in bins:
         stats[v][b['name']] = BinnedStats.from_ioda(data, v, **b,
                                                     metrics=metrics,
                                                     qc_metavar=qc_metavar )
@@ -676,11 +688,11 @@ class BinnedStatsCollection:
     should be a good starting point for someone.
     """
 
-    binning=[]
+    bins=[]
 
     # 2D lat lon
     if set(('latitude@MetaData', 'longitude@MetaData')) < set(data.variables):
-      binning.append({
+      bins.append({
         'name': 'latlon',
         'dimensions': [
           {'name': 'latitude',
@@ -690,53 +702,72 @@ class BinnedStatsCollection:
       })
 
       # and a global binning
-      binning.append({
+      bins.append({
         'name':'global',
         'dimensions':[]
       })
 
-    # vertical profiles
-    # TODO this doesn't work when merging files
-    #  due to the likely different bounds
-    for v in ('depth','height','air_pressure'):
-      v2=f'{v}@MetaData'
-      if v2 in data.variables:
-        vmin = numpy.min(numpy.array(data[v2]))
-        vmax = numpy.max(numpy.array(data[v2]))
-        #TODO do better error checking than this
-        if numpy.max(numpy.abs(numpy.array([vmin,vmax]))) > 1e12:
-          continue
-        binning.append({
-          'name': 'profile',
-          'dimensions': [
-            {'name': v,
-             'resolution': 20.0,
-             'bounds': [vmin, vmax]}
-          ]
-        })
+    # # vertical profiles
+    # # TODO this doesn't work when merging files
+    # #  due to the likely different bounds
+    # for v in ('depth','height','air_pressure'):
+    #   v2=f'{v}@MetaData'
+    #   if v2 in data.variables:
+    #     vmin = numpy.min(numpy.array(data[v2]))
+    #     vmax = numpy.max(numpy.array(data[v2]))
+    #     #TODO do better error checking than this
+    #     if numpy.max(numpy.abs(numpy.array([vmin,vmax]))) > 1e12:
+    #       continue
+    #     bins.append({
+    #       'name': 'profile',
+    #       'dimensions': [
+    #         {'name': v,
+    #          'resolution': 20.0,
+    #          'bounds': [vmin, vmax]}
+    #       ]
+    #     })
 
     # take a guess at what metrics to look at
-    metrics = {}
+    metrics = []
     metavars = set([k.split('@')[-1] for k in data.variables])
+
+    # observation value
     if 'ObsValue' in metavars:
-      metrics['obs'] = '@ObsValue'
+      metrics.append({
+        'name': 'obs',
+        'source': '@ObsValue' })
 
+    # O-B
+    ombg=None
     if 'ombg' in metavars:
-      metrics['ombg'] = '@ombg'
+      ombg='@ombg'
     elif set(('hofx','ObsValue')) < metavars:
-      metrics['ombg'] = '@ObsValue - @hofx'
+      ombg='@ObsValue - @hofx'
+    metrics.append({
+        'name': 'ombg',
+        'source':ombg})
 
+    # O-A
+    oman=None
     if 'oman' in metavars:
-      metrics['oman'] = '@oman'
+      oman='@oman'
     else:
       pass
       # TODO, find last hofx[0-9]+ and use that for 'oman'
+    if oman is not None:
+      metrics.append({
+        'name': 'omban',
+        'source':oman})
+
+    # increment
+    if oman is not None and ombg is not None:
+      metrics.append({
+        'name': 'inc',
+        'source': f'({oman}) - ({ombg})'})
 
     config={
-      'binning': binning,
-      'metrics': metrics,
-    }
-
+      'bins': bins,
+      'metrics': metrics,}
     return config
 
 
@@ -775,7 +806,7 @@ class BinnedStatsDiff:
                        f'dimension "{d1.name}" only overlaps by '+
                        f'{int(overlap*100)} %' )
           _logger.warn(f'  stats1 {d1.name} bounds: {d1.bounds}')
-          _logger.warn(f'  stats1 {d2.name} bounds: {d2.bounds}')
+          _logger.warn(f'  stats2 {d2.name} bounds: {d2.bounds}')
           _logger.warn('  continuing, but the difference plots may not show '+
                        'the results you expect.')
       else:
@@ -787,8 +818,10 @@ class BinnedStatsDiff:
 
     # calculate dimension masks,
     # (in the case of non-overlapping sections of dimensions)
+    # TODO
     for d1, d2 in zip(stats1.bin_dims, stats2.bin_dims):
-      print("TODO")
+      print(d1)
+      print(d2)
       pass
 
   @property
