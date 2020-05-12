@@ -818,11 +818,36 @@ class BinnedStatsDiff:
 
     # calculate dimension masks,
     # (in the case of non-overlapping sections of dimensions)
-    # TODO
+    # TODO document what the heck is going on here
+    self._masks1=[]
+    self._masks2=[]
     for d1, d2 in zip(stats1.bin_dims, stats2.bin_dims):
-      print(d1)
-      print(d2)
-      pass
+      mask1 = numpy.zeros((len(d1.bin_centers),), dtype=bool)
+      mask2 = numpy.zeros((len(d2.bin_centers),), dtype=bool)
+      idx1 = 0
+      idx2 = 0
+      while idx1 < len(mask1) and idx2 < len(mask2):
+        bounds1 = d1.bin_edges[idx1:idx1+2]
+        bounds2 = d2.bin_edges[idx2:idx2+2]
+        overlap_range = (numpy.min((bounds1[1], bounds2[1])) -
+                         numpy.max((bounds1[0], bounds2[0])))
+        total_range = (numpy.max( (bounds1, bounds2)) -
+                       numpy.min( (bounds1, bounds2)))
+        overlap = overlap_range/total_range
+        if ( overlap < 0.5):
+          if overlap < 0:
+            idx2 += 1
+          else:
+            idx1 += 1
+        else:
+          mask1[idx1] = True
+          mask2[idx2] = True
+          idx1 += 1
+          idx2 += 1
+      self._masks1.append(numpy.array(mask1))
+      self._masks2.append(numpy.array(mask2))
+      if numpy.sum(mask1) != numpy.sum(mask2):
+        raise Exception("Error in BinnedStatsDiff init, masks are not the same size")
 
   @property
   def variable(self):
@@ -846,30 +871,42 @@ class BinnedStatsDiff:
 
   @property
   def clip_dims(self):
+    raise NotImplementedError()
     # TODO handle overlap issues
     return self.stats1.clip_dims
 
   def count(self):
-    return self.stats1.count() - self.stats2.count()
+    return ( self._clip(1, self.stats1.count()) -
+             self._clip(2, self.stats2.count()) )
 
   @property
   def count_qc(self):
     raise NotImplementedError()
 
   def mean(self, variable):
-    return self.stats1.mean(variable) - self.stats2.mean(variable)
+    return ( self._clip(1, self.stats1.mean(variable)) -
+             self._clip(2, self.stats2.mean(variable)) )
 
   def rmsd(self, variable):
-    return self.stats1.rmsd(variable) - self.stats2.rmsd(variable)
+    return ( self._clip(1, self.stats1.rmsd(variable)) -
+             self._clip(2, self.stats2.rmsd(variable)) )
 
   def stddev(self, variable):
-    return self.stats1.stddev(variable) - self.stats2.stddev(variable)
+    return ( self._clip(1, self.stats1.stddev(variable)) -
+             self._clip(2, self.stats2.stddev(variable)) )
 
   def variance(self, variable):
-   return self.stats1.variance(variable) - self.stats2.variance(variable)
+    return ( self._clip(1, self.stats1.variance(variable)) -
+             self._clip(2, self.stats2.variance(variable)) )
 
   def __str__(self):
     return (f'<BinnedStatsDiff(variable="{self.stats1.variable}", '+
             f'name="{self.stats1.name}", '+
             f'dims={[d.name for d in self.stats1.bin_dims]}, '+
             f'clipping={[d.name for d in self.stats1.clip_dims]})>')
+
+  def _clip(self, idx, stats):
+    masks = self._masks1 if idx == 1 else self._masks2
+    for i, m in enumerate(masks):
+      stats = stats.compress(m, axis=i)
+    return stats
