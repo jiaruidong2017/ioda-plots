@@ -208,7 +208,7 @@ class PlotType1DProfile(PlotType1D):
   def __init__(self, data, dims, **kwargs):
     super().__init__(data, dims, **kwargs)
     self._transpose = True
-    self._invert_y = data[0].bin_dims[0].name in self._profile_dims_inverted
+    self._invert_y = self._dims[0].name in self._profile_dims_inverted
 
 
 
@@ -371,7 +371,8 @@ def plot(exps, names, config_file, **kwargs):
   if config_file is None:
     config = _make_default_config()
   else:
-    config=YAML().load(config_file)['plotting']
+    cfg = YAML().load(config_file)
+    config = cfg['plotting'] if 'plotting' in cfg else _make_default_config()
 
   # load all the experiment data
   exp_data = [iodaplots.BinnedStatsCollection.load(e) for e in exps]
@@ -460,7 +461,9 @@ def plot(exps, names, config_file, **kwargs):
 
 
 def _generate_plot_groups(config, match_args):
+  # TODO combine the common 'basic' and 'composite' logic
   groups=[]
+
   if 'basic' in config:
     cfgs=[]
     # expand the "any" keywords
@@ -512,10 +515,35 @@ def _generate_plot_groups(config, match_args):
 
   if 'composite' in config:
     raise NotImplementedError()
+    cfgs = []
+    for c in config['composite']:
+      # TODO split based on "any" keyword
+      cfgs.append(c)
+
+    for c in cfgs:
+      valid=True
+      for k, v in c.items():
+        if k in ('stat','metric', 'plot', 'name'):
+          continue
+        if not fnmatch.fnmatch(match_args[k], v):
+          valid = False
+          break
+
+      if valid:
+        gs = []
+        for i, p in enumerate(c['plot']):
+          # TODO pass the correct args
+          gs.append(PlottingGroup(f"{p['metric']}_{p['stat']}",
+                                  p['metric'],p['stat'],
+                                  {'ls':'--'}))
+        groups += [ gs, ]
+
+  # TODO set the name correctly, instead of passing back list, pass back a dict
 
   return groups
 
 def _make_default_config():
+  # TODO make this smarter. Only return "count" for one of the metrics
   return {
     'basic': [{
       'class':'*',
