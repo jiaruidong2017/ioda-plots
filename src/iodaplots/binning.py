@@ -871,7 +871,7 @@ class BinnedStatsDiff:
 
   @property
   def clip_dims(self):
-    raise NotImplementedError()
+    #raise NotImplementedError()
     # TODO handle overlap issues
     return self.stats1.clip_dims
 
