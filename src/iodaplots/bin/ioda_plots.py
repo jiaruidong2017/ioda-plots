@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+
+# (C) Copyright 2020-2020 UCAR
+#
+# This software is licensed under the terms of the Apache Licence Version 2.0
+# which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
+
 import click
 import iodaplots
 import logging
@@ -89,6 +95,7 @@ def cat(bin_files, output):
   """
   Combine several binned stats files along the time dimension
   """
+  _logger.info(f'Concatenating {len(bin_files)} files(s).')
   stats=None
   for f in bin_files:
     s = iodaplots.BinnedStatsCollection.load(f)
@@ -96,6 +103,7 @@ def cat(bin_files, output):
       stats = s
     else:
       stats.cat(s)
+  _logger.info(f'saving concatenated file to {output}')
   stats.save(output)
 
 
@@ -105,6 +113,7 @@ def cat(bin_files, output):
               help="output binned statistics")
 def merge(bin_files, output):
   """  Combine multiple binned files into a single binned file """
+  _logger.info(f'merging {len(bin_files)} file(s).')
   stats=None
   for f in bin_files:
     s = iodaplots.BinnedStatsCollection.load(f)
@@ -122,6 +131,8 @@ def merge(bin_files, output):
               ' lines on the 1D plots, or 2D plots if "--diff" is used.')
 @click.option('-o','--output', type=str, required=True, metavar='FILE',
               help='output FILE template')
+@click.option('-c','--config', type=click.File('r'),
+              help="configuration yaml file")
 @click.option('--diff', is_flag=True,
               help='Plots are the differences from a control experiment.'+
               ' The first "--exp" is considered the control experiment and is '+
@@ -131,21 +142,12 @@ def merge(bin_files, output):
 @click.option('--thumbnails', is_flag=True,
               help='Create simpler images suitable for thumbnails.'+
               ' (smaller and with fewer labels)')
-def plot(exp, output, **kwargs) :
+def plot(exp, output, config, **kwargs) :
   """ Using binned files from one or more experiments, generate plots. """
 
   names, files = zip(*exp)
-  iodaplots.plot(files, names, **kwargs)
-  # _logger.info(f"iodaplots: plotting {bin_file}.")
-
-  # s = iodaplots.BinnedStatsCollection.load(bin_file)
-  # for vk, v in s.variables.items():
-  #   for bk, b in v.items():
-  #     try:
-  #       iodaplots.plot(b, f'{output}{vk}_{bk}')
-  #     except Exception :
-  #       logging.error(traceback.format_exc())
-
+  iodaplots.plot(exps=files, names=names, output=output,
+                 config_file=config, **kwargs)
 
 if __name__=="__main__":
   cli()
