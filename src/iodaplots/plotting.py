@@ -72,31 +72,50 @@ class PlotType(abc.ABC):
     # TODO do some smarter logic to figure out the precision of the datetime needed
     # TODO handle case where clip dims are different between experiments (datetime?)
     self._annotations = []
-    # dims = stats[0].clip_dims
-    # dims += [d for d in stats[0].bin_dims if d.name == 'datetime']
-    # for d in dims:
-    #   if d.name == 'datetime':
-    #     bs = [dateutil.parser.parse(str(b)).strftime("%Y-%m-%d %HZ")
-    #           for b in d.bounds ]
-    #     self._annotations.append(f'{bs[0]} to {bs[1]}')
-    #   else:
-    #     self._annotations.append(f'{d.name}:  {d.bounds[0]} to {d.bounds[1]}')
+    dims = kwargs['clip_dims'].copy()
+    dims += [d for d in self._dims if d.name == 'datetime']
+    for d in dims:
+      if d.name == 'datetime':
+        bs = [dateutil.parser.parse(str(b)).strftime("%Y-%m-%d %HZ")
+              for b in d.bounds ]
+        self._annotations.append(f'{bs[0]} to {bs[1]}')
+      else:
+        self._annotations.append(f'{d.name}:  {d.bounds[0]} to {d.bounds[1]}')
 
   def plot_before(self):
-    plt.figure()
-    self._ax = plt.axes()
+    self._fig = plt.figure()
+    self._outer = self._fig.add_gridspec(2,1, height_ratios=[0.9,0.1])
+    self._ax = self._fig.add_subplot(self._outer[0])
+    self._ax_bottom = self._fig.add_subplot(self._outer[1])
+    self._ax_bottom.axis('off')
 
   @abc.abstractmethod
   def plot(self, data):
+    fontsize = 10
+    plt.tight_layout()
+
+    x0 = fontsize
+    x1 = self._fig.get_figwidth()*72 - fontsize
+    y0 = 0 #fontsize
+
     if not self._args['thumbnail']:
+      bbox = self._ax_bottom.get_window_extent().transformed(self._fig.dpi_scale_trans.inverted())
+      y1 = bbox.y1*72 - fontsize
+
       # annotations at the bottom
-      y = 0.0
+      y = y1
       for a in self._annotations:
-        y+= 12
-        plt.annotate(a, xy=(0.0, y), xycoords='figure points', weight='light')
+        self._ax_bottom.annotate(a, xy=(x0, y), xycoords='figure points',
+          verticalalignment='top', weight='light', fontsize=fontsize)
+        y -= (fontsize+2)
+
+      self._ax_bottom.annotate('JCSDA ioda-plots', xy=(x1, y1), xycoords='figure points',
+        verticalalignment='top', horizontalalignment='right', weight='light',
+        fontsize=fontsize)
 
       # title
-      plt.title(self._title)
+      self._ax.set_title(self._title)
+    plt.tight_layout()
 
   def set_datetime_label(self, axis):
     # set labels on the time axis depending on the date range
@@ -122,9 +141,9 @@ class PlotType(abc.ABC):
       minor = mdates.MonthLocator()
 
     if axis == 'x':
-      ax = plt.gca().xaxis
+      ax = self._ax.xaxis
     elif axis == 'y':
-      ax = plt.gca().yaxis
+      ax = self._ax.yaxis
     else:
       raise Exception('"axis" must be "x" or "y"')
 
@@ -147,8 +166,8 @@ class PlotType1D(PlotType):
   def plot(self, data):
     super().plot(data)
     if self._invert_y:
-      plt.gca().invert_yaxis()
-    plt.grid(True, alpha=0.5)
+      self._ax.gca().invert_yaxis()
+    self._ax.grid(True, alpha=0.5)
 
     if self._dims[0].name != 'datetime':
       self._ax.set_xlabel(self._dims[0].name)
@@ -162,7 +181,7 @@ class PlotType1D(PlotType):
       if self._transpose:
         d2 = reversed(d2)
 
-      plt.plot(*d2)
+      self._ax.plot(*d2)
 
 
 class PlotType1DLat(PlotType1D):
@@ -177,7 +196,7 @@ class PlotType1DLat(PlotType1D):
     # 0 line if latitudes are in range
     b = self._dims[0].bounds
     if numpy.min(b) < 0 < numpy.max(b):
-      plt.axvline(x=0.0, color='black', alpha=0.5)
+      self._ax.axvline(x=0.0, color='black', alpha=0.5)
 
 
 class PlotType1DTimeseries(PlotType1D):
@@ -263,7 +282,7 @@ class PlotType2D(PlotType):
       cmap = self._args['cmap']
 
 
-    plt.pcolormesh(
+    im = self._ax.pcolormesh(
       self._dims[idx].bin_edges, self._dims[1-idx].bin_edges,
       d, cmap=cmap, antialiased=True, vmin=vmin, vmax=vmax,
                    **plt_args)
@@ -274,7 +293,8 @@ class PlotType2D(PlotType):
     #   d, cmap=cmap, antialiased=True, vmin=vmin, vmax=vmax, **args)
 
     if not self._args['thumbnail']:
-      plt.colorbar(orientation='vertical', shrink=0.7, fraction=0.02)
+      self._fig.colorbar(im, ax=self._ax,
+              orientation='vertical', shrink=0.7, fraction=0.02)
 
     super().plot(data)
 
@@ -301,11 +321,14 @@ class PlotType2DHovmoller(PlotType2D):
   def plot(self, data):
 
     idx = 1 if self._transpose else 0
-    plt.xlabel(self._dims[idx].name)
-    plt.ylabel(self._dims[1-idx].name)
+    if self._dims[idx].name != 'datetime':
+      self._ax.set_xlabel(self._dims[idx].name)
+
+    if self._dims[1-idx].name != 'datetime':
+      self._ax.set_ylabel(self._dims[1-idx].name)
 
     if self._flip_y:
-      plt.gca().invert_yaxis()
+      self._ax.invert_yaxis()
 
     self.set_datetime_label('x' if self._transpose else 'y')
 
@@ -316,9 +339,9 @@ class PlotType2DHovmoller(PlotType2D):
       idx = 0 if self._transpose else 1
       b = self._dims[idx].bounds
       if numpy.min(b) < 0 < numpy.max(b):
-        plt.axhline(y=0.0, color='black', alpha=0.5)
+        self._ax.axhline(y=0.0, color='black', alpha=0.5)
 
-    plt.grid(True, alpha=0.5)
+    self._ax.grid(True, alpha=0.5)
 
 
 class PlotType2DLatlon(PlotType2D):
@@ -347,8 +370,14 @@ class PlotType2DLatlon(PlotType2D):
     self._transform=ccrs.PlateCarree()
 
   def plot_before(self):
-    plt.figure(figsize=(8.0, 4.0))
-    self._ax = plt.axes(projection=self._projection)
+    # TODO roll this into the generic PlotType.plot_before()
+    self._fig = plt.figure(figsize=(7.5, 4.0))
+    self._outer = self._fig.add_gridspec(2,1, height_ratios=[0.9,0.1])
+
+    #self._ax = plt.axes(projection=self._projection)
+    self._ax = self._fig.add_subplot(self._outer[0], projection=self._projection)
+    self._ax_bottom = self._fig.add_subplot(self._outer[1])
+    self._ax_bottom.axis('off')
 
   def plot(self, data):
     self._ax.coastlines(color='k', alpha=0.5)
@@ -400,7 +429,8 @@ def plot(exps, names, config_file, **kwargs):
       outfile=kwargs['output']+f'{vk}_{bk}'
 
       # Get a plotting class capable of these dimensions
-      # TOOD get a proper union of dimensions, when using multiple exps
+      # TODO get a proper union of dimensions, when using multiple exps
+      # TODO, bin_dims and clip_dims
       dim_names = [d.name for d in stats[0].bin_dims]
       plot_class = PlotType.create(dim_names=dim_names, exp_cnt=len(stats))
       if plot_class is None:
@@ -423,6 +453,7 @@ def plot(exps, names, config_file, **kwargs):
       # TODO allow for yaml overrides
       default_args = {
         'scale': 'linear' if not kwargs['diff'] else 'div',
+        'clip_dims': stats[0].clip_dims,
       }
 
       # for each plot
@@ -456,6 +487,7 @@ def plot(exps, names, config_file, **kwargs):
         plotter.plot_before()
         plotter.plot(data)
         _logger.info(f'saving {fn}')
+        plt.tight_layout()
         plt.savefig(fn)
         plt.close()
 
