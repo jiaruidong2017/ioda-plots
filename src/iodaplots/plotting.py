@@ -166,7 +166,7 @@ class PlotType1D(PlotType):
   def plot(self, data):
     super().plot(data)
     if self._invert_y:
-      self._ax.gca().invert_yaxis()
+      self._ax.invert_yaxis()
     self._ax.grid(True, alpha=0.5)
 
     if self._dims[0].name != 'datetime':
